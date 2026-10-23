@@ -1,0 +1,42 @@
+{
+  "name": "buildright",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "dev:full": "concurrently -k \"vite\" \"node --watch server/index.js\"",
+    "server": "node server/index.js",
+    "build": "vite build",
+    "test": "node --test src/design-engine.test.js shared/estimateEngine.test.js shared/quantityEngine.test.js shared/repairEngine.test.js server/tests/access.test.js server/tests/search.test.js",
+    "seed": "node server/seed.js",
+    "start": "node server/index.js",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@react-three/drei": "^10.7.9",
+    "@react-three/fiber": "^9.8.1",
+    "bcryptjs": "^3.0.3",
+    "cors": "^2.8.6",
+    "dotenv": "^18.0.8",
+    "express": "^5.3.0",
+    "express-rate-limit": "^8.7.1",
+    "framer-motion": "^11.11.11",
+    "jsonwebtoken": "^9.0.3",
+    "lucide-react": "^0.511.0",
+    "mongoose": "^9.11.2",
+    "pdfkit": "^0.20.2",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
+    "recharts": "^2.13.0",
+    "three": "^0.186.1"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.3.3",
+    "autoprefixer": "^10.4.20",
+    "concurrently": "^10.0.6",
+    "postcss": "^8.4.49",
+    "tailwindcss": "^3.4.16",
+    "vite": "^5.4.10"
+  }
+}

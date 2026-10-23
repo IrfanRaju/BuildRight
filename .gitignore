@@ -1,0 +1,41 @@
+# Dependencies
+node_modules/
+
+# Build
+dist/
+build/
+.vite/
+
+# Environment & secrets
+.env
+.env.*
+!.env.example
+
+# Logs & OS
+*.log
+npm-debug.log*
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Uploads / local data
+uploads/
+
+# Editor & AI tooling
+.cursor/
+.kiri/
+.kombai/
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Coverage & caches
+coverage/
+.cache/
+*.tmp
+*.temp
+
+# OS / misc
+*.local
+.DS_Store
