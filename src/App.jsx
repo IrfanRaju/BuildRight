@@ -377,20 +377,25 @@ function Header({ page, setPage, mobileNavOpen, setMobileNavOpen }) {
     setPage(routes[id] || 'home');
   };
 
+  const go = (id) => {
+    navigate(id);
+    setMobileNavOpen(false);
+  };
+
   return (
     <header className="sticky top-0 z-50 border-b border-slate-200/70 bg-white/90 shadow-[0_8px_30px_-18px_rgba(15,23,42,0.35)] backdrop-blur-md">
-      <div className="mx-auto flex h-16 max-w-7xl items-center gap-4 px-4 sm:h-[4.25rem] sm:px-6 lg:px-8">
-        <button onClick={() => setPage('home')} aria-label="BuildRight home" className="flex shrink-0 items-center gap-2.5 rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-orange focus-visible:ring-offset-2">
+      <div className="mx-auto flex h-16 max-w-7xl items-center gap-3 px-4 sm:h-[4.25rem] sm:px-6 lg:gap-4 lg:px-8">
+        <button onClick={() => { setPage('home'); setMobileNavOpen(false); }} aria-label="BuildRight home" className="flex shrink-0 items-center gap-2.5 rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-orange focus-visible:ring-offset-2">
           <span className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-slate-50 ring-1 ring-slate-200/80">
             <img src="/logoB.png" alt="" width="500" height="500" className="h-10 w-10 object-cover object-top" />
           </span>
           <span className="flex items-baseline gap-2 whitespace-nowrap text-left">
             <span className="text-lg font-black tracking-tight text-[#101828]">BuildRight</span>
-            <span className="hidden text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400 sm:inline">Smart planning</span>
+            <span className="hidden text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400 xl:inline">Smart planning</span>
           </span>
         </button>
 
-        <nav className="ml-auto hidden items-center gap-1 text-[13px] font-medium text-slate-600 xl:flex">
+        <nav className="hidden min-w-0 flex-1 items-center justify-end gap-0.5 overflow-x-auto text-[12px] font-medium text-slate-600 lg:flex xl:gap-1 xl:text-[13px]">
           {navItems.map((item) => {
             const active = page === (item.id === 'design' ? 'designer' : item.id);
             return (
@@ -399,8 +404,8 @@ function Header({ page, setPage, mobileNavOpen, setMobileNavOpen }) {
                 type="button"
                 title={item.title || item.label}
                 aria-current={active ? 'page' : undefined}
-                onClick={() => navigate(item.id)}
-                className={`whitespace-nowrap rounded-full px-3 py-1.5 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-orange ${active ? 'bg-orange-50 font-semibold text-brand-orange' : 'hover:bg-slate-50 hover:text-brand-orange'}`}
+                onClick={() => go(item.id)}
+                className={`shrink-0 whitespace-nowrap rounded-full px-2 py-1.5 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-orange xl:px-3 ${active ? 'bg-orange-50 font-semibold text-brand-orange' : 'hover:bg-slate-50 hover:text-brand-orange'}`}
               >
                 {item.label}
               </button>
@@ -408,29 +413,25 @@ function Header({ page, setPage, mobileNavOpen, setMobileNavOpen }) {
           })}
         </nav>
 
-        <div className="ml-auto hidden items-center gap-2 md:flex xl:ml-2">
-          {user ? <button type="button" onClick={() => setPage('dashboard')} className="max-w-[7.5rem] truncate whitespace-nowrap rounded-full border border-slate-200 bg-white px-3.5 py-2 text-sm font-semibold text-slate-800 shadow-sm transition hover:border-orange-200">{user.name.split(' ')[0]}</button> : <button type="button" onClick={() => setPage('login')} className="whitespace-nowrap rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 shadow-sm transition hover:border-orange-200">Sign In</button>}
-          {user?.role === 'admin' && <button type="button" onClick={() => setPage('admin')} className="whitespace-nowrap rounded-full border border-slate-200 px-3.5 py-2 text-sm font-semibold text-slate-700 shadow-sm">Admin</button>}
-          {user?.role === 'supplier' && <button type="button" onClick={() => setPage('supplier')} className="whitespace-nowrap rounded-full border border-slate-200 px-3.5 py-2 text-sm font-semibold text-slate-700 shadow-sm">Supplier</button>}
-          {user?.role === 'provider' && <button type="button" onClick={() => setPage('provider')} className="whitespace-nowrap rounded-full border border-slate-200 px-3.5 py-2 text-sm font-semibold text-slate-700 shadow-sm">Requests</button>}
-          <button type="button" onClick={() => setPage('cart')} className="whitespace-nowrap rounded-full border border-slate-200 px-3.5 py-2 text-sm font-semibold text-slate-700 shadow-sm transition hover:border-orange-200">Cart{count ? ` (${count})` : ''}</button>
-          <button type="button" onClick={() => setPage('estimator')} className="hidden whitespace-nowrap rounded-full bg-brand-orange px-5 py-2 text-sm font-semibold text-white shadow-[0_10px_24px_-10px_rgba(255,117,24,0.9)] transition hover:-translate-y-0.5 hover:bg-orange-600 active:scale-[0.98] lg:inline-flex">Get Started</button>
+        <div className="hidden shrink-0 items-center gap-2 md:flex">
+          {user ? <button type="button" onClick={() => { setPage('dashboard'); setMobileNavOpen(false); }} className="max-w-[7.5rem] truncate whitespace-nowrap rounded-full border border-slate-200 bg-white px-3.5 py-2 text-sm font-semibold text-slate-800 shadow-sm transition hover:border-orange-200">{user.name.split(' ')[0]}</button> : <button type="button" onClick={() => { setPage('login'); setMobileNavOpen(false); }} className="whitespace-nowrap rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 shadow-sm transition hover:border-orange-200">Sign In</button>}
+          {user?.role === 'admin' && <button type="button" onClick={() => { setPage('admin'); setMobileNavOpen(false); }} className="whitespace-nowrap rounded-full border border-slate-200 px-3.5 py-2 text-sm font-semibold text-slate-700 shadow-sm">Admin</button>}
+          {user?.role === 'supplier' && <button type="button" onClick={() => { setPage('supplier'); setMobileNavOpen(false); }} className="whitespace-nowrap rounded-full border border-slate-200 px-3.5 py-2 text-sm font-semibold text-slate-700 shadow-sm">Supplier</button>}
+          {user?.role === 'provider' && <button type="button" onClick={() => { setPage('provider'); setMobileNavOpen(false); }} className="whitespace-nowrap rounded-full border border-slate-200 px-3.5 py-2 text-sm font-semibold text-slate-700 shadow-sm">Requests</button>}
+          <button type="button" onClick={() => { setPage('cart'); setMobileNavOpen(false); }} className="whitespace-nowrap rounded-full border border-slate-200 px-3.5 py-2 text-sm font-semibold text-slate-700 shadow-sm transition hover:border-orange-200">Cart{count ? ` (${count})` : ''}</button>
+          <button type="button" onClick={() => go('estimator')} className="hidden whitespace-nowrap rounded-full bg-brand-orange px-5 py-2 text-sm font-semibold text-white shadow-[0_10px_24px_-10px_rgba(255,117,24,0.9)] transition hover:-translate-y-0.5 hover:bg-orange-600 active:scale-[0.98] xl:inline-flex">Get Started</button>
         </div>
 
-        <div className="ml-auto flex items-center gap-2 md:hidden">
-          <button type="button" onClick={() => setPage('cart')} className="whitespace-nowrap rounded-full border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700">Cart{count ? ` (${count})` : ''}</button>
+        <div className="ml-auto flex shrink-0 items-center gap-2 lg:ml-0 lg:hidden">
+          <button type="button" onClick={() => { setPage('cart'); setMobileNavOpen(false); }} className="whitespace-nowrap rounded-full border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700 md:hidden">Cart{count ? ` (${count})` : ''}</button>
           <button type="button" aria-label={mobileNavOpen ? 'Close navigation menu' : 'Open navigation menu'} aria-expanded={mobileNavOpen} className="rounded-xl border border-slate-200 p-2.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-orange" onClick={() => setMobileNavOpen(!mobileNavOpen)}>
             {mobileNavOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
           </button>
         </div>
-
-        <button type="button" aria-label={mobileNavOpen ? 'Close navigation menu' : 'Open navigation menu'} aria-expanded={mobileNavOpen} className="hidden shrink-0 rounded-xl border border-slate-200 p-2.5 md:inline-flex xl:hidden focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-orange" onClick={() => setMobileNavOpen(!mobileNavOpen)}>
-          {mobileNavOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
-        </button>
       </div>
 
       {mobileNavOpen && (
-        <div className="max-h-[min(70vh,32rem)] overflow-y-auto border-t border-slate-200 bg-white/98 px-4 py-4 shadow-lg xl:hidden">
+        <div className="max-h-[min(70vh,32rem)] overflow-y-auto border-t border-slate-200 bg-white/98 px-4 py-4 shadow-lg lg:hidden">
           <div className="mx-auto grid max-w-7xl gap-1 text-sm text-slate-700 sm:grid-cols-2">
             {navItems.map((item) => {
               const active = page === (item.id === 'design' ? 'designer' : item.id);
@@ -440,7 +441,7 @@ function Header({ page, setPage, mobileNavOpen, setMobileNavOpen }) {
                   type="button"
                   title={item.title || item.label}
                   aria-current={active ? 'page' : undefined}
-                  onClick={() => navigate(item.id)}
+                  onClick={() => go(item.id)}
                   className={`whitespace-nowrap rounded-xl px-3 py-2.5 text-left font-medium transition hover:bg-orange-50 hover:text-brand-orange focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-orange ${active ? 'bg-orange-50 text-brand-orange' : ''}`}
                 >
                   {item.title || item.label}
@@ -449,8 +450,8 @@ function Header({ page, setPage, mobileNavOpen, setMobileNavOpen }) {
             })}
           </div>
           <div className="mx-auto mt-4 flex max-w-7xl flex-col gap-2 sm:flex-row">
-            <button type="button" onClick={() => setPage(user ? 'dashboard' : 'login')} className="flex-1 rounded-2xl border border-slate-200 px-4 py-3 text-sm font-semibold">{user ? 'Dashboard' : 'Sign In'}</button>
-            <button type="button" onClick={() => navigate('estimator')} className="flex-1 rounded-2xl bg-brand-orange px-4 py-3 text-sm font-semibold text-white">Get Started</button>
+            <button type="button" onClick={() => { setPage(user ? 'dashboard' : 'login'); setMobileNavOpen(false); }} className="flex-1 rounded-2xl border border-slate-200 px-4 py-3 text-sm font-semibold">{user ? 'Dashboard' : 'Sign In'}</button>
+            <button type="button" onClick={() => go('estimator')} className="flex-1 rounded-2xl bg-brand-orange px-4 py-3 text-sm font-semibold text-white">Get Started</button>
           </div>
         </div>
       )}
