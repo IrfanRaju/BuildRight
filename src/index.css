@@ -73,6 +73,20 @@ textarea:focus-visible {
   box-shadow: 0 0 0 3px rgba(249, 115, 22, 0.12);
 }
 
+/* Keep CAD SVGs readable on narrow screens without forcing overflow */
+.design-plan-host svg,
+[data-design-plan] svg {
+  max-width: 100%;
+  height: auto;
+}
+
+@media (max-width: 640px) {
+  .input {
+    padding: 0.7rem 0.8rem;
+    border-radius: 0.85rem;
+  }
+}
+
 * {
   box-sizing: border-box;
 }

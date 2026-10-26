@@ -1,4 +1,6 @@
 import { illustrativeRateBook } from './rateBook.js';
+import { projectSizeBand, resolveMarginPercent } from './marginEngine.js';
+import { predictTimeline } from './timelineEngine.js';
 
 export const MARLA_SQFT = 272.25;
 export const KANAL_SQFT = MARLA_SQFT * 20;
@@ -60,20 +62,82 @@ function findRated(rows, predicate) {
   return rows.find(predicate);
 }
 
+function locationMultiplier(book, location) {
+  const regional = book.regionalRates?.[location];
+  if (regional && Number.isFinite(regional.multiplier)) {
+    return {
+      factor: regional.multiplier,
+      transport: Number(regional.transportAdjustment) || 0,
+      provenance: `RegionalRate for ${location}`,
+    };
+  }
+  return {
+    factor: book.locationFactors?.[location] ?? 1,
+    transport: 0,
+    provenance: book.locationFactors?.[location] != null ? `Location factor for ${location}` : 'No regional multiplier (using 1.0)',
+  };
+}
+
 function resolveRate(book, rows, matcher, quality, location, rateKey) {
   const exact = findRated(rows, (row) => matcher(row) && row.location === location && row.quality === quality);
   if (exact) {
-    return { rate: exact[rateKey], provenance: `Configured ${location} / ${quality} rate` };
+    const includesTransport = exact.priceIncludesTransport === true;
+    return {
+      rate: exact[rateKey],
+      provenance: includesTransport
+        ? `Configured ${location} / ${quality} rate (already includes regional/transport — multiplier not reapplied)`
+        : `Configured ${location} / ${quality} rate`,
+      skipLocationFactor: true,
+      priceIncludesTransport: includesTransport,
+    };
+  }
+  const cityAnyQuality = findRated(rows, (row) => matcher(row) && row.location === location);
+  if (cityAnyQuality) {
+    const qualityFactor = book.qualityFactors?.[quality] ?? 1;
+    const includesTransport = cityAnyQuality.priceIncludesTransport === true;
+    return {
+      rate: cityAnyQuality[rateKey] * qualityFactor,
+      provenance: includesTransport
+        ? `${location} rate × quality ${qualityFactor} (transport already in price)`
+        : `${location} rate × quality factor ${qualityFactor}`,
+      skipLocationFactor: true,
+      priceIncludesTransport: includesTransport,
+    };
   }
   const base = findRated(rows, (row) => matcher(row) && row.location === 'Islamabad' && row.quality === 'standard')
     || findRated(rows, matcher);
   if (!base) return null;
   const qualityFactor = book.qualityFactors?.[quality] ?? 1;
-  const locationFactor = book.locationFactors?.[location] ?? 1;
+  const loc = locationMultiplier(book, location);
+  const transportBump = 1 + loc.transport;
   return {
-    rate: base[rateKey] * qualityFactor * locationFactor,
-    provenance: `Islamabad standard rate adjusted by quality factor ${qualityFactor} and ${location} factor ${locationFactor}`,
+    rate: base[rateKey] * qualityFactor * loc.factor * transportBump,
+    provenance: `Islamabad standard × quality ${qualityFactor} × ${loc.provenance} ${loc.factor}${loc.transport ? ` × transport ${transportBump}` : ''}`,
+    skipLocationFactor: false,
+    priceIncludesTransport: false,
   };
+}
+
+function resolveQuantityPerSqFt(book, rule, input) {
+  const overrides = input.quantityOverrides || {};
+  if (overrides[rule.code] != null && overrides[rule.code] !== '') {
+    return { perSqFt: Number(overrides[rule.code]), source: 'Manual quantity override' };
+  }
+  const buildingType = String(input.projectType || input.buildingType || 'House');
+  const quality = normalizeQuality(input.quality);
+  const dbRules = book.quantityRules || [];
+  const match = dbRules.find((row) => row.code === rule.code && row.active !== false
+    && (row.buildingType === '*' || row.buildingType === buildingType)
+    && (row.quality === '*' || row.quality === quality))
+    || dbRules.find((row) => row.code === rule.code && row.active !== false && row.buildingType === '*');
+  if (match) {
+    const floors = Number(input.floors) || 1;
+    const floorAdj = 1 + (Number(match.floorFactor) || 0) * Math.max(0, floors - 1);
+    return { perSqFt: match.perSqFt * floorAdj, source: `QuantityRule ${match.code} (${match.buildingType}/${match.quality})` };
+  }
+  const template = book.buildingTemplate;
+  const multiplier = template?.quantityMultipliers?.[rule.code] ?? template?.quantityMultipliers?.get?.(rule.code) ?? 1;
+  return { perSqFt: rule.perSqFt * (Number(multiplier) || 1), source: 'Rate-book quantity coefficient' };
 }
 
 export function calculateEstimate(input = {}, rateBook = illustrativeRateBook()) {
@@ -95,19 +159,34 @@ export function calculateEstimate(input = {}, rateBook = illustrativeRateBook())
   const inflation = percent(input.inflationPercent ?? 0, 0);
   const overheadRate = percent(input.overheadPercent, book.defaults?.overheadPercent ?? 8);
   const contingencyRate = percent(input.contingencyPercent, book.defaults?.contingencyPercent ?? 5);
-  const marginRate = percent(input.marginPercent, book.defaults?.marginPercent ?? 0);
+  const marginResolution = resolveMarginPercent(
+    { ...input, coveredAreaSqFt: coveredPerFloor, builtUpSqFt, projectSize: projectSizeBand(builtUpSqFt) },
+    book.marginRules || [],
+    book.defaults?.marginPercent ?? 0,
+  );
+  const marginRate = percent(marginResolution.marginPercent, book.defaults?.marginPercent ?? 0);
   const taxRate = percent(input.taxPercent, book.defaults?.taxPercent ?? 0);
+  const regional = locationMultiplier(book, location);
 
   const warnings = [];
   if (coveredPerFloor > plotSqFt) warnings.push('Covered area per floor is larger than the plot area.');
-  if (!book.locationFactors?.[location]) warnings.push(`No location factor is configured for ${location}. Islamabad standard rates were used without a location adjustment.`);
+  if (!book.locationFactors?.[location] && !book.regionalRates?.[location]) {
+    warnings.push(`No regional rate is configured for ${location}. Islamabad standard rates were used without a location adjustment.`);
+  }
+
+  const uniqueCodes = new Map();
+  for (const rule of book.materials) {
+    if (!scope[rule.scope]) continue;
+    if (!uniqueCodes.has(rule.code)) uniqueCodes.set(rule.code, rule);
+  }
 
   const lines = [];
-  for (const rule of book.materials) {
+  for (const rule of uniqueCodes.values()) {
     if (!scope[rule.scope]) continue;
     const resolved = resolveRate(book, book.materials, (row) => row.code === rule.code, quality, location, 'rate');
     if (!resolved) continue;
-    const quantity = quantityFor(builtUpSqFt * rule.perSqFt, rule.unit);
+    const qty = resolveQuantityPerSqFt(book, rule, input);
+    const quantity = quantityFor(builtUpSqFt * qty.perSqFt, rule.unit);
     const materialInflation = rule.scope === 'grey' || rule.scope === 'finishing' ? inflation : 0;
     const unitRate = resolved.rate * (1 + materialInflation);
     lines.push({
@@ -117,9 +196,12 @@ export function calculateEstimate(input = {}, rateBook = illustrativeRateBook())
       scope: rule.scope,
       unit: rule.unit,
       quantity,
+      perSqFt: qty.perSqFt,
+      quantitySource: qty.source,
       unitRate: money(unitRate),
       cost: money(quantity * unitRate),
       provenance: resolved.provenance,
+      imageUrl: rule.imageUrl || '',
     });
   }
 
@@ -148,8 +230,14 @@ export function calculateEstimate(input = {}, rateBook = illustrativeRateBook())
     return { cost: money(builtUpSqFt * resolved.rate), provenance: resolved.provenance, ratePerSqFt: money(resolved.rate) };
   }
 
-  const greyLabor = laborCost('grey');
-  const finishingLabor = laborCost('finishing');
+  const laborIntensity = Number(book.buildingTemplate?.laborIntensity) || 1;
+  const laborAdjustmentNote = laborIntensity !== 1
+    ? `Labor scaled by building template intensity ${laborIntensity}`
+    : null;
+  const greyLaborRaw = laborCost('grey');
+  const finishingLaborRaw = laborCost('finishing');
+  const greyLabor = { ...greyLaborRaw, cost: money(greyLaborRaw.cost * (input.laborOverride !== undefined && input.laborOverride !== '' && input.laborOverride !== null ? 1 : laborIntensity)) };
+  const finishingLabor = { ...finishingLaborRaw, cost: money(finishingLaborRaw.cost * (input.laborOverride !== undefined && input.laborOverride !== '' && input.laborOverride !== null ? 1 : laborIntensity)) };
   const greyEquipment = equipmentCost('grey');
   const finishingEquipment = equipmentCost('finishing');
   const greyMaterial = money(sumScope('grey', 'cost'));
@@ -180,9 +268,18 @@ export function calculateEstimate(input = {}, rateBook = illustrativeRateBook())
     };
   };
 
-  const monthsBase = category === 'grey' ? 2 + floors * 1.4 : category === 'finishing' ? 1.2 + floors * 0.8 : 3 + floors * 1.8;
-  const qualityBump = quality === 'luxury' ? 1.15 : quality === 'premium' ? 1.08 : quality === 'economy' ? 0.92 : 1;
-  const timelineMonths = Math.round(monthsBase * qualityBump * 10) / 10;
+  const timeline = predictTimeline({
+    coveredAreaSqFt: coveredPerFloor,
+    floors,
+    category,
+    quality,
+    buildingType: String(input.projectType || input.buildingType || 'House'),
+    constructionMethod: String(input.structureType || 'Framed RCC'),
+    startDate: input.startDate || '',
+    workforceFactor: Number(input.workforceFactor) || 1,
+    timelineFactor: book.buildingTemplate?.timelineFactor || 1,
+    phases: book.buildingTemplate?.phases,
+  });
 
   return {
     currency: 'PKR',
@@ -204,6 +301,7 @@ export function calculateEstimate(input = {}, rateBook = illustrativeRateBook())
       structureType: String(input.structureType || 'Framed RCC'),
       preferences: String(input.preferences || '').slice(0, 500),
       additional: String(input.additional || '').slice(0, 500),
+      startDate: input.startDate || '',
       overheadPercent: overheadRate * 100,
       contingencyPercent: contingencyRate * 100,
       marginPercent: marginRate * 100,
@@ -215,6 +313,19 @@ export function calculateEstimate(input = {}, rateBook = illustrativeRateBook())
       coveredPerFloorSqFt: Math.round(coveredPerFloor),
       builtUpSqFt: Math.round(builtUpSqFt),
     },
+    regionalAdjustment: {
+      city: location,
+      multiplier: regional.factor,
+      transportAdjustment: regional.transport,
+      appliedVia: regional.provenance,
+      note: 'City-specific material/labor rows skip the regional multiplier to avoid double-counting.',
+    },
+    marginResolution: {
+      percent: marginRate * 100,
+      amount: contractorMargin,
+      source: marginResolution.source,
+      matchedRule: marginResolution.matchedRule,
+    },
     lines,
     quantities: {
       cementBags: lines.filter((line) => line.code.startsWith('cement')).reduce((sum, line) => sum + line.quantity, 0),
@@ -222,6 +333,11 @@ export function calculateEstimate(input = {}, rateBook = illustrativeRateBook())
       sandCft: lines.filter((line) => line.code.startsWith('sand')).reduce((sum, line) => sum + line.quantity, 0),
       crushCft: lines.find((line) => line.code === 'crush')?.quantity || 0,
       bricks: lines.find((line) => line.code === 'bricks')?.quantity || 0,
+      blocks: lines.find((line) => line.code === 'blocks')?.quantity || 0,
+      paint: lines.find((line) => line.code === 'paint')?.quantity || 0,
+      tiles: lines.find((line) => line.code === 'tiles')?.quantity || 0,
+      electrical: lines.find((line) => line.code === 'electrical')?.quantity || 0,
+      plumbing: lines.find((line) => line.code === 'plumbing')?.quantity || 0,
     },
     materialCost,
     laborCost: laborTotal,
@@ -234,18 +350,25 @@ export function calculateEstimate(input = {}, rateBook = illustrativeRateBook())
     costPerSqFt: builtUpSqFt ? money(total / builtUpSqFt) : 0,
     grey: scope.grey ? portion(greyMaterial, greyLabor.cost, greyEquipment.cost) : null,
     finishing: scope.finishing ? portion(finishingMaterial, finishingLabor.cost, finishingEquipment.cost) : null,
-    laborProvenance: { grey: greyLabor.provenance, finishing: finishingLabor.provenance },
+    laborProvenance: {
+      grey: greyLabor.provenance,
+      finishing: finishingLabor.provenance,
+      intensity: laborAdjustmentNote,
+    },
     equipmentProvenance: { grey: greyEquipment.provenance, finishing: finishingEquipment.provenance },
-    timelineMonths,
-    timelineLabel: `${timelineMonths} months (indicative)`,
+    timelineMonths: timeline.totalMonths,
+    timelineLabel: timeline.timelineLabel,
+    timeline,
     warnings,
     assumptions: [
       'Built-up area equals covered area per floor multiplied by the number of floors.',
-      'Quantities use configurable per-square-foot rules for a framed concrete building.',
+      'Quantities use MongoDB QuantityRule / BuildingTemplate coefficients when present; otherwise rate-book per-square-foot rules.',
       'Contractor margin and contingency are each applied once to direct cost plus overhead. They are not applied to each other.',
       'Tax is applied once to direct cost, overhead, and contractor margin. Contingency is excluded from the tax base.',
       'A manual labor override replaces calculated labor instead of being added on top of it.',
       'Inflation, when set, adjusts material unit rates only.',
+      'Regional multipliers apply only when a city-specific price is missing; prices marked priceIncludesTransport are never re-multiplied.',
+      marginResolution.source,
       book.illustrative !== false ? 'Rates are illustrative sample values until a verified price source is configured.' : 'Rates come from the configured database snapshot.',
     ],
     exclusions: [
@@ -257,10 +380,11 @@ export function calculateEstimate(input = {}, rateBook = illustrativeRateBook())
     explanation: [
       'Direct cost = material cost + labor cost + equipment cost.',
       'Overhead = direct cost × overhead percent.',
-      'Contractor margin = (direct cost + overhead) × margin percent.',
+      'Contractor margin = (direct cost + overhead) × margin percent (from MarginRule or form).',
       'Contingency = (direct cost + overhead) × contingency percent.',
       'Tax = (direct cost + overhead + contractor margin) × tax percent.',
       'Total = direct cost + overhead + contractor margin + contingency + tax.',
+      'Regional multiplier is applied once via rate resolution — never stacked on city-local prices.',
     ],
   };
 }

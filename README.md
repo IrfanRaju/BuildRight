@@ -28,7 +28,9 @@ Seeded development accounts (change these before sharing the database):
 
 Override with `SEED_ADMIN_EMAIL` / `SEED_ADMIN_PASSWORD`, `SEED_SUPPLIER_EMAIL` / `SEED_SUPPLIER_PASSWORD`, and `SEED_PROVIDER_EMAIL` / `SEED_PROVIDER_PASSWORD` in `.env` if needed.
 
-4. Start the API and the Vite app.
+4. Make sure MongoDB is running (Windows service `MongoDB`, or your Atlas URI in `.env`).
+
+5. Start **both** the API and the Vite app:
 
 ```sh
 npm run dev:full
@@ -36,7 +38,39 @@ npm run dev:full
 
 Open `http://localhost:5173`. The API listens on `http://localhost:3001` and Vite proxies `/api`.
 
-`npm run dev` starts only the website. Generation still falls back to the in-browser geometry engine, but accounts, saved estimates, and the rate catalog need the API and MongoDB.
+### Important: `Request failed (500)` / empty catalog
+
+`npm run dev` starts **only** the website. Estimator, Marketplace, and Repairs call `/api/*`, which proxies to port `3001`. If the API is not running you get Vite proxy errors that look like HTTP 500 in the UI.
+
+Fix:
+
+```sh
+# terminal A — Mongo must already be up
+npm run seed
+npm run server
+
+# terminal B
+npm run dev
+```
+
+Or one command: `npm run dev:full`.
+
+Confirm: open `http://localhost:3001/api/health` — you should see `"status":"ok"` and `"storage":"mongodb"`.
+
+### Live data modules (MongoDB)
+
+| UI module | Mongo collections | API |
+| --- | --- | --- |
+| Cost estimator | `MaterialRate` (Material), `LaborRate`, `RegionalRate`, `MarginRule`, `QuantityRule`, `BuildingTemplate`, saved `CostEstimate` | `/api/estimates`, `/api/materials`, config routes |
+| Admin dashboard | `Admin`, `PriceHistory`, `UploadedImage`, plus rates above | `/api/admin/*`, `/api/uploads`, `/api/regional-rates`, … |
+| Materials marketplace | `ProductCategory`, `MarketplaceProduct`, `Cart`, `Order` | `/api/marketplace/*` |
+| Paint / repair / renovation | `RepairService`, `RepairPricingRule`, `RepairProject`, `ServiceRequest` | `/api/repairs/*` |
+
+Sample PKR prices from `npm run seed` are **illustrative**. Admins update them in the Admin dashboard (materials, regional rates, labor, margins); suppliers update linked marketplace products. There is no live market feed.
+
+### Image uploads
+
+Set `CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY`, and `CLOUDINARY_API_SECRET` to store files on Cloudinary. Without those keys, images are saved under `uploads/` and served at `/uploads/...`. MongoDB stores URLs and metadata only (never Base64 blobs for catalog images).
 
 ## Tests
 

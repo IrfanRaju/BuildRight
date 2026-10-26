@@ -97,6 +97,8 @@ export function createRepairRouter({ Router, requireUser, requireAdmin, optional
         summary: String(req.body?.summary || '').trim().slice(0, 400),
         calculator,
         tasks: Array.isArray(req.body?.tasks) ? req.body.tasks.map((item) => String(item).slice(0, 80)).slice(0, 8) : [],
+        imageUrl: String(req.body?.imageUrl || '').slice(0, 500),
+        galleryImages: Array.isArray(req.body?.galleryImages) ? req.body.galleryImages.map(String).slice(0, 8) : [],
         active: true,
       });
       res.status(201).json({ ok: true, service });
@@ -113,6 +115,8 @@ export function createRepairRouter({ Router, requireUser, requireAdmin, optional
       if (req.body?.summary !== undefined) service.summary = String(req.body.summary).trim().slice(0, 400);
       if (Array.isArray(req.body?.keywords)) service.keywords = req.body.keywords.map((item) => String(item).trim().slice(0, 40)).filter(Boolean).slice(0, 8);
       if (Array.isArray(req.body?.tasks)) service.tasks = req.body.tasks.map((item) => String(item).trim().slice(0, 80)).filter(Boolean).slice(0, 8);
+      if (req.body?.imageUrl !== undefined) service.imageUrl = String(req.body.imageUrl || '').slice(0, 500);
+      if (Array.isArray(req.body?.galleryImages)) service.galleryImages = req.body.galleryImages.map(String).slice(0, 8);
       if (typeof req.body?.active === 'boolean') service.active = req.body.active;
       await service.save();
       res.json({ ok: true, service });

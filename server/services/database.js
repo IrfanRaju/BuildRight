@@ -1,17 +1,34 @@
 import mongoose from 'mongoose';
 import { AuditLog } from '../models/index.js';
 
+const globalForMongo = globalThis;
+
 export async function connectDatabase(uri) {
   if (!uri) {
     console.warn('MONGODB_URI is not set. API routes that need storage will return 503.');
     return false;
   }
+
+  if (mongoose.connection.readyState === 1) return true;
+
+  if (!globalForMongo.__buildrightMongoPromise) {
+    globalForMongo.__buildrightMongoPromise = mongoose.connect(uri, {
+      bufferCommands: false,
+      maxPoolSize: process.env.VERCEL ? 5 : 10,
+    }).then(() => {
+      console.info('BuildRight API connected to MongoDB.');
+      return true;
+    }).catch((error) => {
+      globalForMongo.__buildrightMongoPromise = null;
+      console.error('BuildRight API could not connect to MongoDB:', error.message);
+      throw error;
+    });
+  }
+
   try {
-    await mongoose.connect(uri);
-    console.info('BuildRight API connected to MongoDB.');
+    await globalForMongo.__buildrightMongoPromise;
     return true;
-  } catch (error) {
-    console.error('BuildRight API could not connect to MongoDB:', error.message);
+  } catch {
     return false;
   }
 }

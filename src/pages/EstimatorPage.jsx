@@ -4,7 +4,7 @@ import { api, money } from '../lib/api';
 import { useAuth } from '../context/AuthContext';
 import { EmptyState, Field, Notice, PageHeader, buttonClass, ghostClass } from '../components/ui';
 
-const cities = ['Islamabad', 'Rawalpindi', 'Lahore', 'Karachi', 'Peshawar', 'Multan', 'Faisalabad', 'Gilgit-Baltistan'];
+const cities = ['Islamabad', 'Rawalpindi', 'Lahore', 'Karachi', 'Peshawar', 'Multan', 'Faisalabad', 'Gilgit', 'Skardu', 'Hunza', 'Gilgit-Baltistan'];
 const qualities = [
   { id: 'economy', label: 'Economy' },
   { id: 'standard', label: 'Standard' },
@@ -34,9 +34,11 @@ const initialForm = {
   overheadPercent: 8,
   contingencyPercent: 5,
   marginPercent: 0,
+  autoMargin: true,
   taxPercent: 0,
   inflationPercent: 0,
   laborOverride: '',
+  startDate: '',
 };
 
 export default function EstimatorPage({ setPage }) {
@@ -98,7 +100,13 @@ export default function EstimatorPage({ setPage }) {
     setError('');
     setStatus('');
     try {
-      const payload = { ...form, laborOverride: form.laborOverride === '' ? undefined : Number(form.laborOverride) };
+      const payload = {
+        ...form,
+        laborOverride: form.laborOverride === '' ? undefined : Number(form.laborOverride),
+        marginPercent: form.autoMargin ? undefined : form.marginPercent,
+        autoMargin: form.autoMargin,
+        startDate: form.startDate || undefined,
+      };
       const result = await api('/api/estimates/calculate', { method: 'POST', body: payload });
       setEstimate(result.estimate);
       setStep(5);
@@ -117,7 +125,13 @@ export default function EstimatorPage({ setPage }) {
     setLoading(true);
     setError('');
     try {
-      const payload = { ...form, laborOverride: form.laborOverride === '' ? undefined : Number(form.laborOverride) };
+      const payload = {
+        ...form,
+        laborOverride: form.laborOverride === '' ? undefined : Number(form.laborOverride),
+        marginPercent: form.autoMargin ? undefined : form.marginPercent,
+        autoMargin: form.autoMargin,
+        startDate: form.startDate || undefined,
+      };
       const result = await api('/api/estimates', { method: 'POST', body: payload });
       setEstimate(result.estimate.result);
       setSaved((current) => [result.estimate, ...current]);
@@ -196,9 +210,16 @@ export default function EstimatorPage({ setPage }) {
           <div className="grid gap-5 md:grid-cols-2">
             <Field label="Overhead %"><input className="input" type="number" min="0" max="40" value={form.overheadPercent} onChange={(event) => setField('overheadPercent', Number(event.target.value))} /></Field>
             <Field label="Contingency %"><input className="input" type="number" min="0" max="40" value={form.contingencyPercent} onChange={(event) => setField('contingencyPercent', Number(event.target.value))} /></Field>
-            <Field label="Contractor margin %"><input className="input" type="number" min="0" max="40" value={form.marginPercent} onChange={(event) => setField('marginPercent', Number(event.target.value))} /></Field>
+            <label className="flex items-center gap-2 text-sm md:col-span-2">
+              <input type="checkbox" checked={form.autoMargin} onChange={(event) => setField('autoMargin', event.target.checked)} />
+              Apply automatic contractor margin from admin Margin Rules (priority-based)
+            </label>
+            {!form.autoMargin && (
+              <Field label="Contractor margin %"><input className="input" type="number" min="0" max="40" value={form.marginPercent} onChange={(event) => setField('marginPercent', Number(event.target.value))} /></Field>
+            )}
             <Field label="Tax %"><input className="input" type="number" min="0" max="40" value={form.taxPercent} onChange={(event) => setField('taxPercent', Number(event.target.value))} /></Field>
             <Field label="Material inflation %"><input className="input" type="number" min="0" max="40" value={form.inflationPercent} onChange={(event) => setField('inflationPercent', Number(event.target.value))} /></Field>
+            <Field label="Planned start date (for timeline)"><input className="input" type="date" value={form.startDate} onChange={(event) => setField('startDate', event.target.value)} /></Field>
             <Field label="Manual labor override (PKR, optional)"><input className="input" type="number" min="0" value={form.laborOverride} onChange={(event) => setField('laborOverride', event.target.value)} placeholder="Leave empty to calculate labor" /></Field>
           </div>
         )}
@@ -212,6 +233,12 @@ export default function EstimatorPage({ setPage }) {
                 <div className="text-xs uppercase tracking-[0.16em] text-orange-200">{estimate.illustrative ? 'Illustrative total' : 'Configured total'}</div>
                 <div className="mt-3 text-4xl font-black">{money(estimate.total)}</div>
                 <p className="mt-2 text-sm text-slate-300">{money(estimate.costPerSqFt)} per sq ft · {estimate.timelineLabel}</p>
+                {estimate.marginResolution && (
+                  <p className="mt-2 text-xs text-orange-200">Margin {estimate.marginResolution.percent}% · {estimate.marginResolution.source}</p>
+                )}
+                {estimate.regionalAdjustment && (
+                  <p className="mt-1 text-xs text-slate-400">Regional ×{estimate.regionalAdjustment.multiplier} ({estimate.regionalAdjustment.city})</p>
+                )}
                 <p className="mt-4 text-xs leading-5 text-slate-400">{estimate.limitations}</p>
               </div>
               <div className="rounded-3xl border border-slate-200 p-6 text-sm">
@@ -220,6 +247,21 @@ export default function EstimatorPage({ setPage }) {
                 ))}
               </div>
             </div>
+            {estimate.timeline?.phases?.length > 0 && (
+              <div className="rounded-3xl border border-slate-200 p-5">
+                <h2 className="font-bold">Indicative construction schedule</h2>
+                <p className="mt-1 text-xs text-slate-500">{estimate.timeline.estimateLabel}. {estimate.timeline.completionDate ? `Completion ${estimate.timeline.completionDate}` : 'Add a start date to see calendar dates.'}</p>
+                <div className="mt-4 grid gap-2 md:grid-cols-2 lg:grid-cols-3">
+                  {estimate.timeline.phases.map((phase) => (
+                    <div key={phase.key} className="rounded-2xl bg-slate-50 px-3 py-2 text-sm">
+                      <strong>{phase.label}</strong>
+                      <p className="text-xs text-slate-500">{phase.durationDays} days{phase.overlapsPrevious ? ' · overlaps previous' : ''}</p>
+                      {phase.startDate && <p className="text-xs text-slate-500">{phase.startDate} → {phase.endDate}</p>}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
             <div className="grid gap-5 lg:grid-cols-2">
               {estimate.grey && <ScopeCard title="Grey structure" scope={estimate.grey} />}
               {estimate.finishing && <ScopeCard title="Finishing" scope={estimate.finishing} />}

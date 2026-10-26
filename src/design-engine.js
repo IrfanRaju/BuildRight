@@ -26,6 +26,10 @@ export function createDesignFromPrompt(prompt, previous = {}) {
     parking: previous.parking || false,
     garden: previous.garden || false,
     view: previous.view || 'Exterior',
+    exteriorMaterial: previous.exteriorMaterial || 'concrete',
+    lighting: previous.lighting || 'day',
+    balconies: previous.balconies || false,
+    roofUtility: previous.roofUtility || false,
   };
 
   const startsNewBrief = /^(?:design|create|build|plan|generate)\b/.test(text.trim());
@@ -183,16 +187,22 @@ function layoutNames(config, names) {
   const rows = Math.ceil(names.length / columns);
   const cellWidth = config.width / columns;
   const cellDepth = config.depth / rows;
-  return names.map((name, index) => ({
-    id: `${index + 1}`,
-    name,
-    x: (index % columns) * cellWidth,
-    y: Math.floor(index / columns) * cellDepth,
-    width: cellWidth,
-    depth: cellDepth,
-    door: name !== 'Balcony',
-    window: index % columns === 0 || index % columns === columns - 1 || name === 'Balcony',
-  }));
+  return names.map((name, index) => {
+    const col = index % columns;
+    const row = Math.floor(index / columns);
+    const onPerimeter = col === 0 || col === columns - 1 || row === 0 || row === rows - 1;
+    return {
+      id: `${index + 1}`,
+      name,
+      x: col * cellWidth,
+      y: row * cellDepth,
+      width: cellWidth,
+      depth: cellDepth,
+      door: name !== 'Balcony',
+      // Outside-facing rooms get windows so elevations and the 3D facade stay coherent.
+      window: onPerimeter || name === 'Balcony',
+    };
+  });
 }
 
 function makeRooms(config, floorIndex = 0) {

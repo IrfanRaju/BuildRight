@@ -1,4 +1,22 @@
-import { Article, AuditLog, ContactMessage, CostEstimate, GenerationJob, MarketplaceProduct, Order, Project, RepairProject, ServiceRequest, SystemSetting, User } from '../models/index.js';
+import {
+  Article,
+  AuditLog,
+  ContactMessage,
+  CostEstimate,
+  GenerationJob,
+  LaborRate,
+  MarketplaceProduct,
+  MaterialRate,
+  Order,
+  PriceHistory,
+  Project,
+  RegionalRate,
+  RepairProject,
+  RepairService,
+  ServiceRequest,
+  SystemSetting,
+  User,
+} from '../models/index.js';
 import { httpError, pagination } from '../lib/http.js';
 import { LOCATION_FACTORS, QUALITY_FACTORS } from '../../shared/rateBook.js';
 
@@ -8,7 +26,11 @@ export function createAdminRouter({ Router, requireAdmin, requireDatabase }) {
 
   router.get('/overview', async (_req, res, next) => {
     try {
-      const [users, projects, estimates, messages, jobs, articles, products, orders, repairProjects, openRequests] = await Promise.all([
+      const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+      const [
+        users, projects, estimates, messages, jobs, articles, products, orders, repairProjects, openRequests,
+        materials, activeServices, regionalCoverage, recentPriceUpdates,
+      ] = await Promise.all([
         User.countDocuments(),
         Project.countDocuments(),
         CostEstimate.countDocuments(),
@@ -19,19 +41,71 @@ export function createAdminRouter({ Router, requireAdmin, requireDatabase }) {
         Order.countDocuments(),
         RepairProject.countDocuments(),
         ServiceRequest.countDocuments({ status: { $in: ['requested', 'assigned', 'accepted'] } }),
+        MaterialRate.countDocuments(),
+        RepairService.countDocuments({ active: true }),
+        RegionalRate.countDocuments({ active: true }),
+        MaterialRate.countDocuments({ lastPriceUpdate: { $gte: weekAgo } }),
       ]);
-      const [recentJobs, statusRows, revenueRows] = await Promise.all([
+      const [recentJobs, statusRows, revenueRows, priceHistory, recentActivity, recentEstimates] = await Promise.all([
         GenerationJob.find({}).sort({ createdAt: -1 }).limit(8).lean(),
         Order.aggregate([{ $group: { _id: '$status', count: { $sum: 1 } } }]),
         Order.aggregate([{ $match: { status: { $ne: 'Cancelled' } } }, { $group: { _id: null, total: { $sum: '$total' } } }]),
+        PriceHistory.find({}).sort({ createdAt: -1 }).limit(20).lean(),
+        AuditLog.find({}).sort({ createdAt: -1 }).limit(15).lean(),
+        CostEstimate.find({}).sort({ createdAt: -1 }).limit(8).select('title result.total createdAt input.location').lean(),
+      ]);
+      const priceChart = await PriceHistory.aggregate([
+        { $match: { field: { $in: ['rate', 'ratePerSqFt', 'multiplier'] }, createdAt: { $gte: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000) } } },
+        {
+          $group: {
+            _id: { $dateToString: { format: '%Y-%m-%d', date: '$createdAt' } },
+            changes: { $sum: 1 },
+            avgNew: { $avg: '$newValue' },
+          },
+        },
+        { $sort: { _id: 1 } },
+        { $limit: 30 },
       ]);
       res.json({
         ok: true,
-        counts: { users, projects, estimates, messages, jobs, articles, products, orders, repairProjects, openRequests },
+        counts: {
+          users,
+          projects,
+          estimates,
+          messages,
+          jobs,
+          articles,
+          products,
+          orders,
+          repairProjects,
+          openRequests,
+          materials,
+          activeServices,
+          regionalCoverage,
+          recentPriceUpdates,
+          laborRates: await LaborRate.countDocuments(),
+        },
         recentJobs,
+        recentEstimates,
+        priceHistory,
+        recentActivity,
+        priceChart: priceChart.map((row) => ({ date: row._id, changes: row.changes, avgNew: row.avgNew })),
         ordersByStatus: statusRows.map((row) => ({ status: row._id, count: row.count })),
         orderValue: revenueRows[0]?.total || 0,
       });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  router.get('/estimates', async (req, res, next) => {
+    try {
+      const { page, limit, skip } = pagination(req.query);
+      const [estimates, total] = await Promise.all([
+        CostEstimate.find({}).sort({ createdAt: -1 }).skip(skip).limit(limit).lean(),
+        CostEstimate.countDocuments(),
+      ]);
+      res.json({ ok: true, estimates, page, total });
     } catch (error) {
       next(error);
     }

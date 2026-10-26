@@ -9,30 +9,53 @@ export function renderEstimatePdf(estimate) {
     doc.on('error', reject);
 
     const money = (value) => `PKR ${Math.round(value || 0).toLocaleString('en-PK')}`;
-    doc.fillColor('#101828').fontSize(20).text('BuildRight construction estimate');
+    const generatedAt = new Date().toLocaleString('en-PK');
+    doc.fillColor('#101828').fontSize(20).text('BuildRight');
+    doc.fontSize(12).fillColor('#FF7518').text('Construction cost estimate report');
     doc.moveDown(0.3).fontSize(10).fillColor('#FF7518').text(estimate.illustrative ? 'Illustrative planning estimate — not a certified bill of quantities' : 'Planning estimate from configured rates');
+    if (estimate.estimateId) doc.fillColor('#4B5563').fontSize(9).text(`Estimate ID: ${estimate.estimateId}`);
+    doc.fillColor('#4B5563').fontSize(9).text(`Generated: ${generatedAt}`);
     doc.fillColor('#1F2937').moveDown().fontSize(12).text(estimate.input?.projectName || 'Estimate');
-    doc.fontSize(10).text(`${estimate.input?.projectType || ''} · ${estimate.input?.location || ''} · ${estimate.input?.category || ''} · ${estimate.input?.quality || ''}`);
-    doc.text(`Built-up area: ${estimate.areas?.builtUpSqFt || 0} sq ft · Floors: ${estimate.input?.floors || ''}`);
+    doc.fontSize(10).text(`City: ${estimate.input?.location || ''} · Type: ${estimate.input?.projectType || ''} · Stage: ${estimate.input?.category || ''} · Quality: ${estimate.input?.quality || ''}`);
+    doc.text(`Covered area: ${estimate.areas?.coveredPerFloorSqFt || 0} sq ft/floor · Floors: ${estimate.input?.floors || ''} · Built-up: ${estimate.areas?.builtUpSqFt || 0} sq ft`);
+    doc.text(`Structure: ${estimate.input?.structureType || 'Framed RCC'}`);
     doc.moveDown().fontSize(16).text(money(estimate.total));
     doc.fontSize(10).text(`Cost per sq ft: ${money(estimate.costPerSqFt)} · Timeline: ${estimate.timelineLabel || ''}`);
+    if (estimate.timeline?.completionDate) {
+      doc.text(`Indicative start ${estimate.timeline.startDate || '—'} → completion ${estimate.timeline.completionDate}`);
+    }
     doc.moveDown().fontSize(12).text('Cost summary');
     for (const [label, value] of [
       ['Materials', estimate.materialCost],
       ['Labor', estimate.laborCost],
-      ['Equipment and other', estimate.equipmentCost],
+      ['Equipment and transportation', estimate.equipmentCost],
       ['Overhead', estimate.overhead],
-      ['Contractor margin', estimate.contractorMargin],
+      [`Contractor margin (${estimate.marginResolution?.percent ?? estimate.input?.marginPercent ?? 0}%)`, estimate.contractorMargin],
       ['Contingency', estimate.contingency],
       ['Tax', estimate.tax],
     ]) doc.fontSize(10).text(`${label}: ${money(value)}`);
 
+    if (estimate.regionalAdjustment) {
+      doc.moveDown().fontSize(12).text('Regional adjustment');
+      doc.fontSize(9).text(`${estimate.regionalAdjustment.city}: multiplier ${estimate.regionalAdjustment.multiplier}, transport ${estimate.regionalAdjustment.transportAdjustment} — ${estimate.regionalAdjustment.note}`);
+    }
+
     doc.moveDown().fontSize(12).text('Quantities');
     const quantities = estimate.quantities || {};
     doc.fontSize(10).text(`Cement ${quantities.cementBags || 0} bags · Steel ${quantities.steelKg || 0} kg · Sand ${quantities.sandCft || 0} cft · Crush ${quantities.crushCft || 0} cft · Bricks ${quantities.bricks || 0}`);
+    if (quantities.tiles || quantities.paint || quantities.electrical || quantities.plumbing) {
+      doc.text(`Tiles ${quantities.tiles || 0} · Paint ${quantities.paint || 0} · Electrical ${quantities.electrical || 0} · Plumbing ${quantities.plumbing || 0}`);
+    }
     doc.moveDown().fontSize(12).text('Material lines');
     for (const line of estimate.lines || []) {
       doc.fontSize(9).text(`${line.name}: ${line.quantity} ${line.unit} × ${money(line.unitRate)} = ${money(line.cost)} (${line.scope})`);
+    }
+    if (estimate.timeline?.phases?.length) {
+      doc.moveDown().fontSize(12).text('Indicative schedule');
+      for (const phase of estimate.timeline.phases) {
+        const range = phase.startDate ? `${phase.startDate} → ${phase.endDate}` : `day ${phase.startOffsetDays}–${phase.endOffsetDays}`;
+        doc.fontSize(9).text(`${phase.label}: ${phase.durationDays} days (${range})${phase.overlapsPrevious ? ' · overlaps previous' : ''}`);
+      }
     }
     doc.moveDown().fontSize(12).text('Assumptions');
     for (const item of estimate.assumptions || []) doc.fontSize(9).text(`• ${item}`);

@@ -12,9 +12,18 @@ export function createEstimateRouter({ Router, requireUser, requireDatabase }) {
 
   router.post('/calculate', async (req, res, next) => {
     try {
-      const book = await loadRateBook();
+      const book = await loadRateBook(req.body || {});
       const result = calculateEstimate(req.body || {}, book);
-      res.json({ ok: true, estimate: result, rateBook: { source: book.source, updatedAt: book.updatedAt, illustrative: book.illustrative } });
+      res.json({
+        ok: true,
+        estimate: result,
+        rateBook: {
+          source: book.source,
+          updatedAt: book.updatedAt,
+          illustrative: book.illustrative,
+          regionalRates: book.regionalRates,
+        },
+      });
     } catch (error) {
       next(httpError(400, error.message));
     }
@@ -31,7 +40,7 @@ export function createEstimateRouter({ Router, requireUser, requireDatabase }) {
 
   router.post('/', requireUser, requireDatabase, async (req, res, next) => {
     try {
-      const book = await loadRateBook();
+      const book = await loadRateBook(req.body || {});
       const result = calculateEstimate(req.body || {}, book);
       const estimate = await CostEstimate.create({
         ownerId: req.user.id,
@@ -44,10 +53,14 @@ export function createEstimateRouter({ Router, requireUser, requireDatabase }) {
           updatedAt: book.updatedAt,
           illustrative: book.illustrative,
           locationFactors: book.locationFactors,
+          regionalRates: book.regionalRates,
           qualityFactors: book.qualityFactors,
           materials: book.materials,
           labor: book.labor,
           equipment: book.equipment,
+          marginRules: book.marginRules,
+          quantityRules: book.quantityRules,
+          buildingTemplate: book.buildingTemplate,
         },
       });
       await recordAudit(req, 'estimate.save', 'CostEstimate', estimate._id, { total: result.total });
@@ -85,7 +98,7 @@ export function createEstimateRouter({ Router, requireUser, requireDatabase }) {
     try {
       const estimate = await CostEstimate.findById(req.params.id);
       assertOwner(estimate, req.user);
-      const pdf = await renderEstimatePdf(estimate.result);
+      const pdf = await renderEstimatePdf({ ...estimate.result, estimateId: String(estimate._id) });
       await recordAudit(req, 'estimate.export', 'CostEstimate', estimate._id);
       res.setHeader('Content-Type', 'application/pdf');
       res.setHeader('Content-Disposition', `attachment; filename="buildright-estimate-${estimate._id}.pdf"`);

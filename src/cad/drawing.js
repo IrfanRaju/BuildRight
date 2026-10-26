@@ -269,25 +269,163 @@ function uniquePoints(walls) {
   return points;
 }
 
-export function buildElevationSvg(config) {
-  const drawing = buildDrawing(config, 0);
-  const width = 1100;
-  const height = 640;
-  const scale = Math.min(860 / config.width, 420 / (drawing.floorHeight * config.floors));
-  const x0 = 80;
-  const yBase = 500;
-  const floors = Array.from({ length: config.floors }, (_, index) => {
-    const y = yBase - (index + 1) * drawing.floorHeight * scale;
-    const windows = Math.max(2, Math.round(config.width / (config.unit === 'feet' ? 12 : 4)));
-    const glass = Array.from({ length: windows }, (__, pane) => `<rect x="${x0 + ((pane + 0.35) * config.width * scale) / windows}" y="${y + drawing.floorHeight * scale * 0.28}" width="${Math.max(8, config.width * scale / windows * 0.45)}" height="${drawing.floorHeight * scale * 0.42}" fill="#bae6fd" stroke="#0f172a"/>`).join('');
-    return `<g><rect x="${x0}" y="${y}" width="${config.width * scale}" height="${drawing.floorHeight * scale}" fill="${index % 2 ? '#e7e5e4' : '#f5f5f4'}" stroke="#111827"/>${glass}<text x="${x0 + 8}" y="${y + 16}" font-size="11" font-family="Arial">Floor ${index + 1}</text></g>`;
-  }).join('');
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}"><rect width="100%" height="100%" fill="#fff"/><text x="36" y="36" font-family="Arial,sans-serif" font-size="18" font-weight="700">${escapeXml(config.title || 'BuildRight')} — Front elevation</text><line x1="${x0}" y1="${yBase}" x2="${x0 + config.width * scale}" y2="${yBase}" stroke="#111827" stroke-width="3"/>${floors}<text x="36" y="580" font-family="Arial,sans-serif" font-size="12">Overall width ${config.width} ${escapeXml(drawing.unit)} · Floor to floor ${drawing.floorHeight} ${escapeXml(drawing.unit)} · ${config.floors} floors</text></svg>`;
+function sheetChrome({ sheetWidth, sheetHeight, title, subtitle, scaleText, unit, north = false, body }) {
+  const blockX = sheetWidth - 290;
+  const blockY = sheetHeight - 118;
+  const northMark = north
+    ? `<g transform="translate(${sheetWidth - 70}, 56)"><circle cx="0" cy="0" r="18" fill="none" stroke="#111" stroke-width="1.2"/><path d="M0 12 L0 -14 L5 -4 L0 -8 L-5 -4 Z" fill="#111"/><text x="0" y="28" text-anchor="middle" font-family="Arial,sans-serif" font-size="11" font-weight="700">N</text></g>`
+    : '';
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${sheetWidth}" height="${sheetHeight}" viewBox="0 0 ${sheetWidth} ${sheetHeight}">
+  <rect width="100%" height="100%" fill="#fff"/>
+  <rect x="18" y="18" width="${sheetWidth - 36}" height="${sheetHeight - 36}" fill="none" stroke="#111" stroke-width="1.6"/>
+  <rect x="26" y="26" width="${sheetWidth - 52}" height="${sheetHeight - 52}" fill="none" stroke="#111" stroke-width="0.6"/>
+  ${northMark}
+  ${body}
+  <g>
+    <rect x="${blockX}" y="${blockY}" width="260" height="88" fill="#fff" stroke="#111" stroke-width="1.2"/>
+    <line x1="${blockX}" y1="${blockY + 28}" x2="${blockX + 260}" y2="${blockY + 28}" stroke="#111" stroke-width="0.8"/>
+    <text x="${blockX + 10}" y="${blockY + 18}" font-family="Arial,sans-serif" font-size="11" font-weight="700">BUILDRIGHT CONCEPT DRAWING</text>
+    <text x="${blockX + 10}" y="${blockY + 46}" font-family="Arial,sans-serif" font-size="12" font-weight="700">${escapeXml(title)}</text>
+    <text x="${blockX + 10}" y="${blockY + 64}" font-family="Arial,sans-serif" font-size="10">${escapeXml(subtitle)}</text>
+    <text x="${blockX + 10}" y="${blockY + 80}" font-family="Arial,sans-serif" font-size="10">Scale ${escapeXml(scaleText)} · Units ${escapeXml(unit)} · Not for construction</text>
+  </g>
+</svg>`;
 }
 
-export function buildSectionSvg(config) {
-  const elevation = buildElevationSvg(config).replace('Front elevation', 'Cross section').replace('Overall width', 'Section width');
-  return elevation;
+function faceSpan(config, face) {
+  if (face === 'left' || face === 'right') return Number(config.depth);
+  return Number(config.width);
+}
+
+function openingsOnFace(drawing, config, face) {
+  const tol = 0.12;
+  return drawing.openings.filter((opening) => {
+    if (face === 'front') return opening.y <= tol || Math.abs(opening.y) < tol;
+    if (face === 'rear') return Math.abs(opening.y - config.depth) < tol;
+    if (face === 'left') return opening.x <= tol;
+    if (face === 'right') return Math.abs(opening.x - config.width) < tol;
+    return false;
+  }).map((opening) => {
+    const along = (face === 'front' || face === 'rear') ? opening.x : opening.y;
+    return { ...opening, along };
+  });
+}
+
+const ELEVATION_TITLES = {
+  front: 'Front elevation',
+  rear: 'Rear elevation',
+  left: 'Left-side elevation',
+  right: 'Right-side elevation',
+};
+
+/** Face-aware elevation from shared wall openings (not a decorative window grid). */
+export function buildElevationSvg(config, face = 'front') {
+  const elevationFace = ELEVATION_TITLES[face] ? face : 'front';
+  const drawing = buildDrawing(config, 0);
+  const sheetWidth = 1280;
+  const sheetHeight = 900;
+  const span = faceSpan(config, elevationFace);
+  const totalHeight = drawing.floorHeight * config.floors;
+  const scale = Math.min(820 / Math.max(span, 1), 520 / Math.max(totalHeight, 1));
+  const x0 = 120;
+  const yBase = 700;
+  const facade = Array.from({ length: config.floors }, (_, index) => {
+    const y = yBase - (index + 1) * drawing.floorHeight * scale;
+    const h = drawing.floorHeight * scale;
+    const level = buildDrawing(config, index);
+    const openings = openingsOnFace(level, config, elevationFace).map((opening) => {
+      const ox = x0 + opening.along * scale - (opening.width * scale) / 2;
+      if (opening.type === 'window') {
+        return `<rect x="${ox.toFixed(1)}" y="${(y + h * 0.28).toFixed(1)}" width="${Math.max(6, opening.width * scale).toFixed(1)}" height="${(h * 0.42).toFixed(1)}" fill="#e0f2fe" stroke="#111" stroke-width="1"/><line x1="${(ox + opening.width * scale / 2).toFixed(1)}" y1="${(y + h * 0.28).toFixed(1)}" x2="${(ox + opening.width * scale / 2).toFixed(1)}" y2="${(y + h * 0.7).toFixed(1)}" stroke="#111" stroke-width="0.6"/>`;
+      }
+      if (opening.type === 'door' && index === 0) {
+        return `<rect x="${ox.toFixed(1)}" y="${(y + h * 0.22).toFixed(1)}" width="${Math.max(8, opening.width * scale * 0.85).toFixed(1)}" height="${(h * 0.72).toFixed(1)}" fill="#f5f5f4" stroke="#111" stroke-width="1.2"/>`;
+      }
+      return '';
+    }).join('');
+    const balcony = config.balconies && index > 0
+      ? `<rect x="${(x0 + span * scale * 0.28).toFixed(1)}" y="${(y + h - 4).toFixed(1)}" width="${(span * scale * 0.44).toFixed(1)}" height="6" fill="none" stroke="#111" stroke-width="1"/>`
+      : '';
+    return `<g>
+      <rect x="${x0}" y="${y.toFixed(1)}" width="${(span * scale).toFixed(1)}" height="${h.toFixed(1)}" fill="#fff" stroke="#111" stroke-width="1.4"/>
+      <line x1="${x0}" y1="${y.toFixed(1)}" x2="${(x0 + span * scale).toFixed(1)}" y2="${y.toFixed(1)}" stroke="#111" stroke-width="0.7"/>
+      ${openings}${balcony}
+      <text x="${x0 + 8}" y="${(y + 14).toFixed(1)}" font-family="Arial,sans-serif" font-size="11">FL ${index + 1}</text>
+    </g>`;
+  }).join('');
+  const roofY = yBase - totalHeight * scale;
+  const roof = `<path d="M ${x0 - 8} ${roofY.toFixed(1)} L ${(x0 + span * scale / 2).toFixed(1)} ${(roofY - 18).toFixed(1)} L ${(x0 + span * scale + 8).toFixed(1)} ${roofY.toFixed(1)}" fill="none" stroke="#111" stroke-width="1.6"/>`;
+  const heightDim = Array.from({ length: config.floors }, (_, index) => {
+    const y1 = yBase - index * drawing.floorHeight * scale;
+    const y2 = yBase - (index + 1) * drawing.floorHeight * scale;
+    const x = x0 + span * scale + 36;
+    return `${line(x, y1, x, y2, 0.8)}<text x="${x + 8}" y="${((y1 + y2) / 2) + 4}" font-family="Arial,sans-serif" font-size="10">${formatSheetLength(drawing.floorHeight, drawing.unit)}</text>`;
+  }).join('');
+  const widthDim = `${line(x0, yBase + 28, x0 + span * scale, yBase + 28, 0.9)}<text x="${x0 + span * scale / 2}" y="${yBase + 46}" text-anchor="middle" font-family="Arial,sans-serif" font-size="11">${formatSheetLength(span, drawing.unit)}</text>`;
+  const materialNote = `<text x="${x0}" y="${yBase + 68}" font-family="Arial,sans-serif" font-size="11">Façade ${escapeXml(config.exteriorMaterial || 'concrete')} · Openings taken from the shared floor geometry</text>`;
+  return sheetChrome({
+    sheetWidth,
+    sheetHeight,
+    title: config.title || 'BuildRight',
+    subtitle: `${ELEVATION_TITLES[elevationFace]} · ${config.floors} floors · ${formatSheetLength(totalHeight, drawing.unit)} overall`,
+    scaleText: `1:${Math.max(50, Math.round(1 / scale * (drawing.unit === 'feet' ? 12 : 100)))}`,
+    unit: drawing.unit,
+    body: `<g id="elevation-${elevationFace}"><line x1="${x0 - 20}" y1="${yBase}" x2="${x0 + span * scale + 20}" y2="${yBase}" stroke="#111" stroke-width="2.4"/>${facade}${roof}${heightDim}${widthDim}${materialNote}</g>`,
+  });
+}
+
+/** True cut through the building from shared room/wall geometry. kind: longitudinal | cross */
+export function buildSectionSvg(config, kind = 'longitudinal') {
+  const sectionKind = kind === 'cross' ? 'cross' : 'longitudinal';
+  const drawing = buildDrawing(config, 0);
+  const sheetWidth = 1280;
+  const sheetHeight = 900;
+  const cutAlongDepth = sectionKind === 'longitudinal';
+  const span = cutAlongDepth ? Number(config.width) : Number(config.depth);
+  const cutAt = cutAlongDepth ? Number(config.depth) / 2 : Number(config.width) / 2;
+  const totalHeight = drawing.floorHeight * config.floors + drawing.floorHeight * 0.35;
+  const scale = Math.min(820 / Math.max(span, 1), 500 / Math.max(totalHeight, 1));
+  const x0 = 120;
+  const yBase = 700;
+  const foundation = `<rect x="${x0 - 12}" y="${yBase}" width="${(span * scale + 24).toFixed(1)}" height="28" fill="#f5f5f4" stroke="#111" stroke-width="1.2"/><text x="${x0}" y="${yBase + 18}" font-family="Arial,sans-serif" font-size="10">Concept foundation zone</text>`;
+  const floors = Array.from({ length: config.floors }, (_, index) => {
+    const yTop = yBase - (index + 1) * drawing.floorHeight * scale;
+    const h = drawing.floorHeight * scale;
+    const level = buildDrawing(config, index);
+    const rooms = level.rooms.filter((room) => {
+      if (cutAlongDepth) return room.y <= cutAt && room.y + room.depth >= cutAt;
+      return room.x <= cutAt && room.x + room.width >= cutAt;
+    }).map((room) => {
+      const start = cutAlongDepth ? room.x : room.y;
+      const size = cutAlongDepth ? room.width : room.depth;
+      const rx = x0 + start * scale;
+      return `<rect x="${rx.toFixed(1)}" y="${(yTop + 4).toFixed(1)}" width="${(size * scale).toFixed(1)}" height="${(h - 8).toFixed(1)}" fill="#fff" stroke="#111" stroke-width="1"/><text x="${(rx + size * scale / 2).toFixed(1)}" y="${(yTop + h / 2).toFixed(1)}" text-anchor="middle" font-family="Georgia,serif" font-size="11">${escapeXml(room.name)}</text>`;
+    }).join('');
+    const slab = `<line x1="${x0}" y1="${yTop.toFixed(1)}" x2="${(x0 + span * scale).toFixed(1)}" y2="${yTop.toFixed(1)}" stroke="#111" stroke-width="2.2"/>`;
+    const walls = `<line x1="${x0}" y1="${yTop.toFixed(1)}" x2="${x0}" y2="${(yTop + h).toFixed(1)}" stroke="#111" stroke-width="2"/><line x1="${(x0 + span * scale).toFixed(1)}" y1="${yTop.toFixed(1)}" x2="${(x0 + span * scale).toFixed(1)}" y2="${(yTop + h).toFixed(1)}" stroke="#111" stroke-width="2"/>`;
+    const stair = level.openings.some((item) => item.type === 'stair')
+      ? Array.from({ length: 6 }, (__, step) => {
+        const sy = yTop + h - (step + 1) * (h / 7);
+        return `<line x1="${(x0 + span * scale * 0.42).toFixed(1)}" y1="${sy.toFixed(1)}" x2="${(x0 + span * scale * 0.58).toFixed(1)}" y2="${sy.toFixed(1)}" stroke="#64748b" stroke-width="0.8"/>`;
+      }).join('')
+      : '';
+    return `<g>${slab}${walls}${rooms}${stair}<text x="${x0 + 6}" y="${(yTop + 14).toFixed(1)}" font-family="Arial,sans-serif" font-size="10">FL ${index + 1} · ${formatSheetLength(drawing.floorHeight, drawing.unit)}</text></g>`;
+  }).join('');
+  const roof = `<line x1="${x0 - 10}" y1="${(yBase - drawing.floorHeight * config.floors * scale).toFixed(1)}" x2="${(x0 + span * scale + 10).toFixed(1)}" y2="${(yBase - drawing.floorHeight * config.floors * scale).toFixed(1)}" stroke="#111" stroke-width="2.6"/>`;
+  const ground = `<line x1="${x0 - 40}" y1="${yBase}" x2="${x0 + span * scale + 40}" y2="${yBase}" stroke="#111" stroke-width="2"/>`;
+  const widthDim = `${line(x0, yBase + 40, x0 + span * scale, yBase + 40, 0.9)}<text x="${x0 + span * scale / 2}" y="${yBase + 58}" text-anchor="middle" font-family="Arial,sans-serif" font-size="11">${formatSheetLength(span, drawing.unit)}</text>`;
+  const cutLabel = cutAlongDepth
+    ? `Longitudinal section · cut at depth ${formatSheetLength(cutAt, drawing.unit)}`
+    : `Cross section · cut at width ${formatSheetLength(cutAt, drawing.unit)}`;
+  return sheetChrome({
+    sheetWidth,
+    sheetHeight,
+    title: config.title || 'BuildRight',
+    subtitle: `${cutLabel} · concept only`,
+    scaleText: `1:${Math.max(50, Math.round(1 / scale * (drawing.unit === 'feet' ? 12 : 100)))}`,
+    unit: drawing.unit,
+    body: `<g id="section-${sectionKind}">${foundation}${ground}${floors}${roof}${widthDim}<text x="${x0}" y="48" font-family="Arial,sans-serif" font-size="14" font-weight="700">${escapeXml(cutLabel)}</text></g>`,
+  });
 }
 
 function dxfPair(code, value) {

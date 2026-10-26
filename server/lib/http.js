@@ -14,8 +14,11 @@ export function loadEnv() {
     imageModel: process.env.IMAGE_MODEL || 'dall-e-2',
     imageBaseUrl: process.env.IMAGE_BASE_URL || 'https://api.openai.com/v1',
   };
-  if (!Number.isFinite(env.port) || env.port <= 0) throw new Error('API_PORT must be a positive number.');
-  if (env.nodeEnv === 'production') {
+  // Serverless (Vercel) never binds a port; skip the listen-port check there.
+  if (!process.env.VERCEL && (!Number.isFinite(env.port) || env.port <= 0)) {
+    throw new Error('API_PORT must be a positive number.');
+  }
+  if (env.nodeEnv === 'production' || process.env.VERCEL) {
     if (!env.mongoUri) throw new Error('MONGODB_URI is required in production.');
     if (!env.jwtSecret || env.jwtSecret.length < 24) throw new Error('JWT_SECRET must be at least 24 characters in production.');
   }

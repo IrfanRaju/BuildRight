@@ -5,9 +5,20 @@ const userSchema = new mongoose.Schema({
   email: { type: String, required: true, unique: true, lowercase: true, trim: true, maxlength: 160 },
   passwordHash: { type: String, required: true, select: false },
   role: { type: String, enum: ['user', 'admin', 'supplier', 'provider'], default: 'user', index: true },
+  accountStatus: { type: String, enum: ['active', 'suspended', 'disabled'], default: 'active', index: true },
   disabled: { type: Boolean, default: false },
   resetTokenHash: { type: String, select: false },
   resetTokenExpires: { type: Date, select: false },
+}, { timestamps: true });
+
+/** Dedicated admin accounts (synced with User role=admin for JWT login). */
+const adminSchema = new mongoose.Schema({
+  name: { type: String, required: true, trim: true, minlength: 2, maxlength: 80 },
+  email: { type: String, required: true, unique: true, lowercase: true, trim: true, maxlength: 160 },
+  passwordHash: { type: String, required: true, select: false },
+  role: { type: String, enum: ['admin', 'superadmin'], default: 'admin', index: true },
+  accountStatus: { type: String, enum: ['active', 'suspended', 'disabled'], default: 'active', index: true },
+  userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
 }, { timestamps: true });
 
 const projectSchema = new mongoose.Schema({
@@ -52,28 +63,49 @@ const materialRateSchema = new mongoose.Schema({
   code: { type: String, required: true, index: true },
   name: { type: String, required: true, maxlength: 120 },
   category: { type: String, required: true, index: true },
+  brand: { type: String, default: '', maxlength: 80 },
+  description: { type: String, default: '', maxlength: 2000 },
   unit: { type: String, required: true },
   scope: { type: String, enum: ['grey', 'finishing'], required: true },
   perSqFt: { type: Number, required: true, min: 0 },
   rate: { type: Number, required: true, min: 0 },
+  previousPrice: { type: Number, default: null, min: 0 },
+  stockQuantity: { type: Number, default: 0, min: 0 },
+  availability: { type: String, enum: ['in_stock', 'limited', 'out_of_stock', 'made_to_order'], default: 'in_stock', index: true },
+  imageUrl: { type: String, default: '', maxlength: 500 },
+  galleryImages: { type: [String], default: [] },
   quality: { type: String, default: 'standard' },
   location: { type: String, default: 'Islamabad', index: true },
+  /** When true, the stored rate already includes regional/transport costs for that city. */
+  priceIncludesTransport: { type: Boolean, default: false },
   supplier: { type: String, default: '', maxlength: 160 },
   source: { type: String, required: true, maxlength: 240 },
   illustrative: { type: Boolean, default: true },
   effectiveFrom: { type: Date, default: Date.now },
+  lastPriceUpdate: { type: Date, default: Date.now },
 }, { timestamps: true });
+materialRateSchema.index({ code: 1, location: 1, quality: 1 });
 
 const laborRateSchema = new mongoose.Schema({
   kind: { type: String, enum: ['labor', 'equipment'], default: 'labor' },
-  scope: { type: String, enum: ['grey', 'finishing'], required: true },
+  skill: {
+    type: String,
+    enum: ['mason', 'laborer', 'steel_fixer', 'carpenter', 'electrician', 'plumber', 'painter', 'tile_worker', 'general', 'equipment'],
+    default: 'general',
+    index: true,
+  },
+  unit: { type: String, enum: ['daily', 'hourly', 'per_sq_ft'], default: 'per_sq_ft' },
+  scope: { type: String, enum: ['grey', 'finishing', 'any'], default: 'any' },
   quality: { type: String, default: 'standard' },
-  location: { type: String, default: 'Islamabad' },
+  location: { type: String, default: 'Islamabad', index: true },
+  rate: { type: Number, min: 0, default: null },
   ratePerSqFt: { type: Number, required: true, min: 0 },
   source: { type: String, required: true },
   illustrative: { type: Boolean, default: true },
   effectiveFrom: { type: Date, default: Date.now },
+  lastUpdated: { type: Date, default: Date.now },
 }, { timestamps: true });
+laborRateSchema.index({ location: 1, skill: 1, kind: 1 });
 
 const contractorSchema = new mongoose.Schema({
   name: { type: String, required: true, maxlength: 120 },
@@ -217,6 +249,8 @@ const repairServiceSchema = new mongoose.Schema({
   calculator: { type: String, required: true },
   keywords: { type: [String], default: [] },
   tasks: { type: [String], default: [] },
+  imageUrl: { type: String, default: '', maxlength: 500 },
+  galleryImages: { type: [String], default: [] },
   active: { type: Boolean, default: true },
   seeded: { type: Boolean, default: false },
 }, { timestamps: true });
@@ -269,15 +303,107 @@ const serviceRequestSchema = new mongoose.Schema({
   history: { type: [{ status: String, note: String, at: Date }], default: [] },
 }, { timestamps: true });
 
+const regionalRateSchema = new mongoose.Schema({
+  city: { type: String, required: true, unique: true, trim: true, maxlength: 80, index: true },
+  region: { type: String, default: '', maxlength: 80 },
+  multiplier: { type: Number, required: true, min: 0.5, max: 3, default: 1 },
+  transportAdjustment: { type: Number, default: 0, min: 0, max: 1 },
+  notes: { type: String, default: '', maxlength: 500 },
+  active: { type: Boolean, default: true, index: true },
+}, { timestamps: true });
+
+const marginRuleSchema = new mongoose.Schema({
+  name: { type: String, required: true, maxlength: 120 },
+  projectType: { type: String, default: '*', maxlength: 80, index: true },
+  quality: { type: String, default: '*', maxlength: 40 },
+  minCoveredArea: { type: Number, default: 0, min: 0 },
+  maxCoveredArea: { type: Number, default: null },
+  minFloors: { type: Number, default: 1, min: 1 },
+  maxFloors: { type: Number, default: null },
+  projectSize: { type: String, enum: ['small', 'medium', 'large', 'any'], default: 'any' },
+  marginPercent: { type: Number, required: true, min: 0, max: 40 },
+  priority: { type: Number, default: 100, index: true },
+  active: { type: Boolean, default: true, index: true },
+  notes: { type: String, default: '', maxlength: 400 },
+}, { timestamps: true });
+
+const quantityRuleSchema = new mongoose.Schema({
+  code: { type: String, required: true, index: true },
+  name: { type: String, required: true, maxlength: 120 },
+  category: { type: String, required: true, maxlength: 60 },
+  unit: { type: String, required: true, maxlength: 30 },
+  scope: { type: String, enum: ['grey', 'finishing'], required: true },
+  buildingType: { type: String, default: '*', maxlength: 80, index: true },
+  constructionType: { type: String, default: '*', maxlength: 80 },
+  quality: { type: String, default: '*', maxlength: 40 },
+  perSqFt: { type: Number, required: true, min: 0 },
+  floorFactor: { type: Number, default: 0, min: -1, max: 1 },
+  notes: { type: String, default: '', maxlength: 400 },
+  active: { type: Boolean, default: true },
+}, { timestamps: true });
+quantityRuleSchema.index({ code: 1, buildingType: 1, quality: 1 });
+
+const buildingTemplateSchema = new mongoose.Schema({
+  key: { type: String, required: true, unique: true, maxlength: 60 },
+  name: { type: String, required: true, maxlength: 120 },
+  buildingType: { type: String, required: true, maxlength: 80, index: true },
+  constructionType: { type: String, default: 'Framed RCC', maxlength: 80 },
+  description: { type: String, default: '', maxlength: 1000 },
+  quantityMultipliers: { type: Map, of: Number, default: {} },
+  laborIntensity: { type: Number, default: 1, min: 0.5, max: 2 },
+  timelineFactor: { type: Number, default: 1, min: 0.5, max: 2 },
+  phases: {
+    type: [{
+      key: String,
+      label: String,
+      shareOfDuration: Number,
+      canOverlapPrev: { type: Boolean, default: false },
+      overlapRatio: { type: Number, default: 0 },
+    }],
+    default: [],
+  },
+  active: { type: Boolean, default: true },
+}, { timestamps: true });
+
+const priceHistorySchema = new mongoose.Schema({
+  entityType: { type: String, enum: ['Material', 'MaterialRate', 'MarketplaceProduct', 'LaborRate', 'RegionalRate'], required: true, index: true },
+  entityId: { type: String, required: true, index: true },
+  field: { type: String, default: 'rate', maxlength: 40 },
+  previousValue: { type: Number, default: null },
+  newValue: { type: Number, required: true },
+  changedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
+  changedByEmail: { type: String, default: '', maxlength: 160 },
+  note: { type: String, default: '', maxlength: 240 },
+}, { timestamps: true });
+priceHistorySchema.index({ entityType: 1, entityId: 1, createdAt: -1 });
+
+const uploadedImageSchema = new mongoose.Schema({
+  url: { type: String, required: true, maxlength: 500 },
+  publicId: { type: String, default: '', maxlength: 200 },
+  originalName: { type: String, default: '', maxlength: 200 },
+  mimeType: { type: String, default: '', maxlength: 80 },
+  bytes: { type: Number, default: 0 },
+  width: { type: Number, default: null },
+  height: { type: Number, default: null },
+  provider: { type: String, enum: ['cloudinary', 'local'], default: 'local' },
+  entityType: { type: String, default: '', maxlength: 60 },
+  entityId: { type: String, default: '', maxlength: 60 },
+  uploadedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
+}, { timestamps: true });
+
 function model(name, schema) {
   return mongoose.models[name] || mongoose.model(name, schema);
 }
 
 export const User = model('User', userSchema);
+export const Admin = model('Admin', adminSchema);
 export const Project = model('Project', projectSchema);
 export const DesignSpecification = model('DesignSpecification', designSpecificationSchema);
 export const CostEstimate = model('CostEstimate', costEstimateSchema);
+/** Alias used by the FYP Material inventory/admin checklist — same collection as MaterialRate. */
 export const MaterialRate = model('MaterialRate', materialRateSchema);
+export const Material = MaterialRate;
+export const Estimate = CostEstimate;
 export const LaborRate = model('LaborRate', laborRateSchema);
 export const Contractor = model('Contractor', contractorSchema);
 export const Article = model('Article', articleSchema);
@@ -294,3 +420,9 @@ export const RepairPricingRule = model('RepairPricingRule', repairPricingRuleSch
 export const RepairProject = model('RepairProject', repairProjectSchema);
 export const ServiceProvider = model('ServiceProvider', serviceProviderSchema);
 export const ServiceRequest = model('ServiceRequest', serviceRequestSchema);
+export const RegionalRate = model('RegionalRate', regionalRateSchema);
+export const MarginRule = model('MarginRule', marginRuleSchema);
+export const QuantityRule = model('QuantityRule', quantityRuleSchema);
+export const BuildingTemplate = model('BuildingTemplate', buildingTemplateSchema);
+export const PriceHistory = model('PriceHistory', priceHistorySchema);
+export const UploadedImage = model('UploadedImage', uploadedImageSchema);

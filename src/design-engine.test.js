@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildDxf, buildElevationSvg, buildIfc, buildPlanSvg, createDesignFromPrompt, designQuantities, resizeRoom, validateDesign } from './design-engine.js';
+import { buildDxf, buildElevationSvg, buildIfc, buildPlanSvg, buildSectionSvg, createDesignFromPrompt, designQuantities, resizeRoom, validateDesign } from './design-engine.js';
 
 test('generates a multi-floor plaza with different ground and upper floor plans', () => {
   const config = createDesignFromPrompt('Design a modern 3-story commercial plaza 30 x 20 meters with parking and garden in Lahore');
@@ -76,6 +76,11 @@ test('builds a dimensioned plaza drawing and CAD exchange files from one specifi
   assert.match(dxf, /Shop 1/);
   assert.match(dxf, /EOF/);
   assert.match(buildElevationSvg(config), /Front elevation/);
+  assert.match(buildElevationSvg(config, 'rear'), /Rear elevation/);
+  assert.match(buildElevationSvg(config, 'left'), /Left-side elevation/);
+  assert.match(buildSectionSvg(config, 'longitudinal'), /Longitudinal section/);
+  assert.match(buildSectionSvg(config, 'cross'), /Cross section/);
+  assert.match(buildSectionSvg(config, 'longitudinal'), /Concept foundation zone/);
   assert.match(buildIfc(config), /IFCWALL/);
   const quantities = designQuantities(config);
   assert.equal(quantities.builtUpSqFt, 60 * 90 * 3);

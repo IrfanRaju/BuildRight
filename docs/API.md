@@ -4,6 +4,10 @@ Base URL in development: `http://localhost:3001` (Vite proxies `/api`).
 
 Responses use `{ ok: true, ... }` for new endpoints. Design-studio endpoints also return `{ error }` or `{ project }` so the existing studio client keeps working. Protected routes expect `Authorization: Bearer <token>`.
 
+If MongoDB is down, storage routes return **503** with a clear message. If the API process is not running, Vite’s proxy surfaces a failed `/api` request — start `npm run server` or `npm run dev:full`.
+
+`GET /api/health` → `{ status, storage: "mongodb"|"unavailable", ... }` is the first check when debugging.
+
 ## Authentication
 
 | Method | Path | Access |
@@ -108,8 +112,32 @@ Catalog prices are administrator-managed or supplier-verified and are labeled wi
 - `POST /api/contact`
 - `GET /api/dashboard` includes projects, estimates, designs, orders, and repair projects for the signed-in user
 - `GET /api/health`
-- Admin routes under `/api/admin/*` require `role: admin` on the server: overview, users, messages, jobs, audit, settings.
-- Admin catalog writes: `POST/PUT /api/materials`, `POST/PUT /api/contractors`, `POST/PUT/DELETE /api/articles`.
-- Commerce admin UI tabs call marketplace and repairs routes above for catalog, orders, repair rates, and providers.
+- Admin routes under `/api/admin/*` require `role: admin` on the server: overview, estimates, users, messages, jobs, audit, settings.
+- Admin catalog writes: `POST/PUT/DELETE /api/materials`, `POST/PUT /api/contractors`, `POST/PUT/DELETE /api/articles`.
+
+## Configuration engines (admin writes)
+
+| Method | Path | Access |
+| --- | --- | --- |
+| GET/POST/PUT/DELETE | `/api/regional-rates` | GET public; writes admin |
+| GET/POST/PUT/DELETE | `/api/labor-rates` | GET public; writes admin (also `GET /api/labor-rates` from catalog) |
+| GET/POST/PUT/DELETE | `/api/margin-rules` | GET public; writes admin |
+| GET/POST/PUT/DELETE | `/api/quantity-rules` | GET public; writes admin |
+| GET/POST/PUT/DELETE | `/api/building-templates` | GET public; writes admin |
+| GET | `/api/price-history` | Admin. Who changed each price, previous/new value, timestamp |
+| GET/POST/DELETE | `/api/uploads` | Admin. Multipart field `image`. Cloudinary when configured; otherwise local `/uploads` |
+
+### Estimate formula
+
+```
+Direct = materials + labor + equipment
+Overhead = Direct × overhead%
+Margin = (Direct + Overhead) × margin%   // MarginRule when autoMargin, else form
+Contingency = (Direct + Overhead) × contingency%
+Tax = (Direct + Overhead + Margin) × tax%
+Total = Direct + Overhead + Margin + Contingency + Tax
+```
+
+Regional multipliers apply when resolving Islamabad-base rates to another city. City-specific material rows (or `priceIncludesTransport: true`) skip the multiplier to avoid double-counting.
 
 Sample rates are marked `illustrative: true` and include a source string and timestamp.

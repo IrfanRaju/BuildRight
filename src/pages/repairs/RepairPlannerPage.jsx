@@ -129,10 +129,13 @@ export default function RepairPlannerPage({ setPage }) {
             <p className="mt-2 text-xs text-slate-500">{serviceTotal} matching service{serviceTotal === 1 ? '' : 's'} from the database</p>
           </div>
           {services.map((service) => (
-            <motion.button key={service.slug} type="button" whileHover={{ y: -3 }} onClick={() => toggle(service.slug)} className={`rounded-3xl border p-5 text-left ${selected.includes(service.slug) ? 'border-[#FF7518] bg-orange-50' : 'border-slate-200 bg-white'}`}>
-              <h2 className="font-bold">{service.title}</h2>
-              <p className="mt-2 text-sm leading-6 text-slate-600">{service.summary}</p>
-              <p className="mt-3 text-xs text-slate-500">{(service.tasks || []).join(' · ')}</p>
+            <motion.button key={service.slug} type="button" whileHover={{ y: -3 }} onClick={() => toggle(service.slug)} className={`overflow-hidden rounded-3xl border text-left ${selected.includes(service.slug) ? 'border-[#FF7518] bg-orange-50' : 'border-slate-200 bg-white'}`}>
+              {service.imageUrl && <img src={service.imageUrl} alt="" className="h-32 w-full object-cover" />}
+              <div className="p-5">
+                <h2 className="font-bold">{service.title}</h2>
+                <p className="mt-2 text-sm leading-6 text-slate-600">{service.summary}</p>
+                <p className="mt-3 text-xs text-slate-500">{(service.tasks || []).join(' · ')}</p>
+              </div>
             </motion.button>
           ))}
           <div className="sm:col-span-2 lg:col-span-3"><button type="button" className={buttonClass} disabled={!selected.length} onClick={() => setStep(2)}>Continue</button></div>

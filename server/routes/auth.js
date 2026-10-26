@@ -1,5 +1,5 @@
 import { createHash, randomBytes, scryptSync, timingSafeEqual } from 'node:crypto';
-import { User } from '../models/index.js';
+import { Admin, User } from '../models/index.js';
 import { isEmail, httpError } from '../lib/http.js';
 import { signAccessToken } from '../middleware/auth.js';
 import { recordAudit } from '../services/database.js';
@@ -26,7 +26,14 @@ function tokenHash(token) {
 }
 
 function publicUser(user) {
-  return { id: user._id, name: user.name, email: user.email, role: user.role, createdAt: user.createdAt };
+  return {
+    id: user._id,
+    name: user.name,
+    email: user.email,
+    role: user.role,
+    accountStatus: user.accountStatus || (user.disabled ? 'disabled' : 'active'),
+    createdAt: user.createdAt,
+  };
 }
 
 function assertPassword(password) {
@@ -64,7 +71,19 @@ export function createAuthRouter({ Router, env, requireDatabase }) {
       if (!isEmail(email) || !password) throw httpError(400, 'Email and password are required.');
       const user = await User.findOne({ email }).select('+passwordHash');
       if (!user || !verifyPassword(password, user.passwordHash)) throw httpError(401, 'Email or password is incorrect.');
-      if (user.disabled) throw httpError(403, 'This account has been disabled.');
+      if (user.disabled || user.accountStatus === 'disabled' || user.accountStatus === 'suspended') {
+        throw httpError(403, 'This account has been disabled.');
+      }
+      if (user.role === 'admin') {
+        await Admin.findOneAndUpdate(
+          { email: user.email },
+          {
+            $set: { name: user.name, accountStatus: user.accountStatus || 'active', userId: user._id, role: 'admin' },
+            $setOnInsert: { passwordHash: user.passwordHash },
+          },
+          { upsert: true },
+        );
+      }
       await recordAudit(req, 'auth.login', 'User', user._id);
       res.json({ ok: true, token: signAccessToken(user, env.jwtSecret), user: publicUser(user) });
     } catch (error) {

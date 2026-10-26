@@ -2,6 +2,7 @@ import { Article, ContactMessage, Contractor, LaborRate, MaterialRate } from '..
 import { httpError, isEmail, pagination, slugify } from '../lib/http.js';
 import { containsRegex } from '../lib/search.js';
 import { recordAudit } from '../services/database.js';
+import { recordPriceChange } from '../services/priceHistory.js';
 
 export function createCatalogRouter({ Router, requireAdmin, requireDatabase }) {
   const router = Router();
@@ -37,18 +38,45 @@ export function createCatalogRouter({ Router, requireAdmin, requireDatabase }) {
 
   router.put('/materials/:id', requireAdmin, requireDatabase, async (req, res, next) => {
     try {
-      const material = await MaterialRate.findByIdAndUpdate(req.params.id, cleanMaterial(req.body || {}), { new: true, runValidators: true });
-      if (!material) throw httpError(404, 'Material rate was not found.');
-      await recordAudit(req, 'material.update', 'MaterialRate', material._id, { rate: material.rate });
+      const previous = await MaterialRate.findById(req.params.id);
+      if (!previous) throw httpError(404, 'Material rate was not found.');
+      const payload = cleanMaterial(req.body || {}, previous);
+      const material = await MaterialRate.findByIdAndUpdate(req.params.id, payload, { new: true, runValidators: true });
+      if (previous.rate !== material.rate) {
+        await recordPriceChange({
+          entityType: 'MaterialRate',
+          entityId: material._id,
+          field: 'rate',
+          previousValue: previous.rate,
+          newValue: material.rate,
+          user: req.user,
+          note: material.name,
+        });
+      }
+      await recordAudit(req, 'material.update', 'MaterialRate', material._id, { rate: material.rate, previousRate: previous.rate });
       res.json({ ok: true, material });
     } catch (error) {
       next(error);
     }
   });
 
-  router.get('/labor-rates', requireDatabase, async (_req, res, next) => {
+  router.delete('/materials/:id', requireAdmin, requireDatabase, async (req, res, next) => {
     try {
-      const rates = await LaborRate.find({}).lean();
+      const material = await MaterialRate.findByIdAndDelete(req.params.id);
+      if (!material) throw httpError(404, 'Material rate was not found.');
+      await recordAudit(req, 'material.delete', 'MaterialRate', material._id);
+      res.status(204).end();
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  router.get('/labor-rates', requireDatabase, async (req, res, next) => {
+    try {
+      const filter = {};
+      if (req.query.location) filter.location = String(req.query.location);
+      if (req.query.skill) filter.skill = String(req.query.skill);
+      const rates = await LaborRate.find(filter).lean();
       res.json({ ok: true, rates });
     } catch (error) {
       next(error);
@@ -164,26 +192,41 @@ export function createCatalogRouter({ Router, requireAdmin, requireDatabase }) {
   return router;
 }
 
-function cleanMaterial(body) {
-  const rate = Number(body.rate);
+function cleanMaterial(body, previous = null) {
+  const rate = Number(body.rate ?? body.pricePkr);
   const perSqFt = Number(body.perSqFt);
   if (!body.name || !body.code || !body.category || !body.unit) throw httpError(400, 'Material name, code, category, and unit are required.');
   if (!Number.isFinite(rate) || rate < 0) throw httpError(400, 'Rate must be a positive number.');
   if (!Number.isFinite(perSqFt) || perSqFt < 0) throw httpError(400, 'Quantity per square foot must be zero or greater.');
+  const priceChanged = previous && previous.rate !== rate;
+  const gallery = Array.isArray(body.galleryImages)
+    ? body.galleryImages.map(String).filter(Boolean).slice(0, 12)
+    : typeof body.galleryImages === 'string'
+      ? body.galleryImages.split(',').map((item) => item.trim()).filter(Boolean).slice(0, 12)
+      : previous?.galleryImages || [];
   return {
     code: String(body.code).slice(0, 60),
     name: String(body.name).slice(0, 120),
     category: String(body.category).slice(0, 60),
+    brand: String(body.brand || '').slice(0, 80),
+    description: String(body.description || '').slice(0, 2000),
     unit: String(body.unit).slice(0, 30),
     scope: body.scope === 'finishing' ? 'finishing' : 'grey',
     perSqFt,
     rate,
+    previousPrice: priceChanged ? previous.rate : (body.previousPrice != null ? Number(body.previousPrice) : previous?.previousPrice ?? null),
+    stockQuantity: Math.max(0, Number(body.stockQuantity) || 0),
+    availability: ['in_stock', 'limited', 'out_of_stock', 'made_to_order'].includes(body.availability) ? body.availability : 'in_stock',
+    imageUrl: String(body.imageUrl || '').slice(0, 500),
+    galleryImages: gallery,
     quality: String(body.quality || 'standard'),
     location: String(body.location || 'Islamabad'),
+    priceIncludesTransport: body.priceIncludesTransport === true,
     supplier: String(body.supplier || '').slice(0, 160),
     source: String(body.source || 'Administrator entry').slice(0, 240),
     illustrative: body.illustrative !== false,
     effectiveFrom: body.effectiveFrom ? new Date(body.effectiveFrom) : new Date(),
+    lastPriceUpdate: priceChanged || !previous ? new Date() : (previous.lastPriceUpdate || previous.updatedAt || new Date()),
   };
 }
 

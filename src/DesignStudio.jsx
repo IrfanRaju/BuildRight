@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Canvas, useThree } from '@react-three/fiber';
-import { ContactShadows, OrbitControls } from '@react-three/drei';
+import { Billboard, ContactShadows, Environment, Html, Line, OrbitControls, PointerLockControls, Sky } from '@react-three/drei';
+import * as THREE from 'three';
 import { GLTFExporter } from 'three/examples/jsm/exporters/GLTFExporter.js';
 import {
   ArrowDownToLine,
@@ -75,13 +76,24 @@ export default function DesignStudio() {
   const [validationError, setValidationError] = useState('');
   const [storageNotice, setStorageNotice] = useState('');
   const [sceneForExport, setSceneForExport] = useState(null);
-  const [configDraft, setConfigDraft] = useState({ type: 'House', width: 18, depth: 14, floors: 2, unit: 'meters', style: 'Modern', location: 'Islamabad', budget: '' });
+  const [sectionCut, setSectionCut] = useState(false);
+  const [hideExterior, setHideExterior] = useState(false);
+  const [measureMode, setMeasureMode] = useState(false);
+  const [measurePoints, setMeasurePoints] = useState([]);
+  const [firstPerson, setFirstPerson] = useState(false);
+  const [configDraft, setConfigDraft] = useState({ type: 'House', width: 18, depth: 14, floors: 2, unit: 'meters', style: 'Modern', location: 'Islamabad', budget: '', material: 'concrete' });
   const fileInput = useRef(null);
 
   const svg = useMemo(() => {
     if (!config) return '';
-    if (sheet === 'elevation') return buildElevationSvg(config);
-    if (sheet === 'section') return buildSectionSvg(config);
+    if (sheet === 'elev-front') return buildElevationSvg(config, 'front');
+    if (sheet === 'elev-rear') return buildElevationSvg(config, 'rear');
+    if (sheet === 'elev-left') return buildElevationSvg(config, 'left');
+    if (sheet === 'elev-right') return buildElevationSvg(config, 'right');
+    if (sheet === 'section-long') return buildSectionSvg(config, 'longitudinal');
+    if (sheet === 'section-cross') return buildSectionSvg(config, 'cross');
+    if (sheet === 'elevation') return buildElevationSvg(config, 'front');
+    if (sheet === 'section') return buildSectionSvg(config, 'longitudinal');
     return buildPlanSvg(config, selectedFloor);
   }, [config, selectedFloor, sheet]);
   const quantities = useMemo(() => config ? designQuantities(config) : null, [config]);
@@ -153,7 +165,7 @@ export default function DesignStudio() {
     setPrompt('');
     setTab('plan');
     setSelectedFloor(0);
-    setViewMode('Exterior');
+    setViewMode('Perspective');
     setGenerationSource(project.source || 'Saved in this browser');
     setValidationError('');
   };
@@ -253,10 +265,18 @@ export default function DesignStudio() {
   };
 
   const createFromConfiguration = () => {
-    const configuration = { ...configDraft, projectType: configDraft.type };
+    const configuration = {
+      ...configDraft,
+      projectType: configDraft.type,
+      exteriorMaterial: configDraft.material || 'concrete',
+    };
     try {
       validateDesign(configuration);
-      const brief = `${configuration.projectType}, ${configuration.floors} floors, ${configuration.width} by ${configuration.depth} ${configuration.unit}, ${configuration.style} style, ${configuration.location}`;
+      if (!configuration.width || !configuration.depth) {
+        setValidationError('Enter plot width and depth before generating. Missing essential dimensions are not invented.');
+        return;
+      }
+      const brief = `${configuration.projectType}, ${configuration.floors} floors, ${configuration.width} by ${configuration.depth} ${configuration.unit}, ${configuration.style} style, ${configuration.location}, exterior ${configuration.exteriorMaterial}`;
       generate(brief, { newDesign: true, configuration });
     } catch (error) {
       setValidationError(error.message);
@@ -355,12 +375,12 @@ export default function DesignStudio() {
             setValidationError('PNG export failed. Please try again.');
             return;
           }
-          downloadBlob(blob, `${safeName(config.title)}-floor-${selectedFloor + 1}.png`);
+          downloadBlob(blob, `${safeName(config.title)}-${sheet}-f${selectedFloor + 1}.png`);
         }, 'image/png');
       };
       image.onerror = () => {
         URL.revokeObjectURL(objectUrl);
-        setValidationError('Could not render the floor plan for PNG export.');
+        setValidationError('Could not render the drawing sheet for PNG export.');
       };
       image.src = objectUrl;
     } catch (error) {
@@ -372,12 +392,23 @@ export default function DesignStudio() {
     if (!svg) return;
     const printWindow = window.open('', '_blank');
     if (!printWindow) {
-      setValidationError('Allow pop-ups to print or save the plan as PDF.');
+      setValidationError('Allow pop-ups to print or save the drawing as PDF.');
       return;
     }
-    printWindow.document.write(`<html><head><title>${escapeHtml(config.title)} — Floor Plan</title><style>body{margin:24px;font-family:Arial,sans-serif}svg{width:100%;height:auto}</style></head><body>${svg}<script>window.onload=()=>window.print()<\/script></body></html>`);
+    printWindow.document.write(`<html><head><title>${escapeHtml(config.title)} — ${escapeHtml(sheet)}</title><style>@page{size:landscape;margin:12mm}body{margin:16px;font-family:Arial,sans-serif;background:#fff}svg{width:100%;height:auto}</style></head><body>${svg}<p style="font-size:11px;color:#64748b">Conceptual BuildRight drawing. Validate structure, foundations, and local code with qualified professionals before construction.</p><script>window.onload=()=>window.print()<\/script></body></html>`);
     printWindow.document.close();
   };
+
+  const toggleLighting = () => {
+    if (!config) return;
+    commitConfig({ ...config, lighting: config.lighting === 'night' ? 'day' : 'night' });
+  };
+
+  const measureDistance = useMemo(() => {
+    if (measurePoints.length < 2) return null;
+    const [a, b] = measurePoints;
+    return Math.hypot(b[0] - a[0], b[1] - a[1], b[2] - a[2]);
+  }, [measurePoints]);
 
   const downloadText = (contents, filename, type) => {
     downloadBlob(new Blob([contents], { type }), filename);
@@ -505,7 +536,19 @@ export default function DesignStudio() {
     <div className="min-h-[calc(100vh-76px)] bg-slate-100">
       <div className="relative flex min-h-[calc(100vh-76px)]">
         {sidebarOpen && (
-          <aside className="absolute inset-y-0 left-0 z-40 w-72 shrink-0 overflow-y-auto border-r border-slate-200 bg-white p-4 shadow-xl xl:relative xl:z-auto xl:h-[calc(100vh-76px)] xl:shadow-none">
+          <button
+            type="button"
+            aria-label="Close projects sidebar"
+            className="fixed inset-0 z-30 bg-slate-900/40 backdrop-blur-[1px] xl:hidden"
+            onClick={() => setSidebarOpen(false)}
+          />
+        )}
+        {sidebarOpen && (
+          <aside className="fixed inset-y-0 left-0 z-40 w-[min(100%,18rem)] shrink-0 overflow-y-auto border-r border-slate-200 bg-white p-4 shadow-xl xl:relative xl:z-auto xl:h-[calc(100vh-76px)] xl:w-72 xl:shadow-none">
+            <div className="mb-4 flex items-center justify-between xl:hidden">
+              <p className="text-sm font-bold text-slate-900">Projects</p>
+              <button type="button" aria-label="Close sidebar" className="rounded-lg border border-slate-200 p-2" onClick={() => setSidebarOpen(false)}><X className="h-4 w-4" /></button>
+            </div>
             <button onClick={startNew} className="flex w-full items-center justify-center gap-2 rounded-xl bg-brand-orange px-4 py-3 text-sm font-bold text-white shadow-md shadow-orange-100 hover:bg-orange-500"><FilePlus2 className="h-4 w-4" /> New Design</button>
             <div className="mt-7 space-y-1">
               <div className="mb-2 flex items-center gap-2 px-2 text-[11px] font-bold uppercase tracking-[0.16em] text-slate-400"><Clock3 className="h-3.5 w-3.5" /> Recent Designs</div>
@@ -537,18 +580,18 @@ export default function DesignStudio() {
         )}
 
         <main className="flex min-w-0 flex-1 flex-col">
-          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 bg-white px-4 py-3 sm:px-6">
-            <div className="flex items-center gap-3">
-              <button onClick={() => setSidebarOpen((open) => !open)} aria-label="Toggle projects sidebar" className="rounded-lg border border-slate-200 p-2 text-slate-600 hover:bg-slate-50"><FolderOpen className="h-4 w-4" /><ArrowLeft className={`ml-1 inline h-3 w-3 transition-transform ${sidebarOpen ? 'rotate-180' : ''}`} /></button>
-              <div>
-                <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-brand-orange">BuildRight AI Designer</p>
-                <h1 className="text-base font-bold text-slate-900 sm:text-lg">{config?.title || 'Architectural Design Studio'}</h1>
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 bg-white/95 px-3 py-3 backdrop-blur sm:px-6">
+            <div className="flex min-w-0 items-center gap-2 sm:gap-3">
+              <button onClick={() => setSidebarOpen((open) => !open)} aria-label="Toggle projects sidebar" className="inline-flex shrink-0 items-center gap-1 rounded-xl border border-slate-200 p-2.5 text-slate-600 transition hover:bg-slate-50"><FolderOpen className="h-4 w-4" /><ArrowLeft className={`hidden h-3 w-3 transition-transform sm:inline ${sidebarOpen ? 'rotate-180' : ''}`} /></button>
+              <div className="min-w-0">
+                <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-brand-orange">BuildRight Designer</p>
+                <h1 className="truncate text-base font-bold text-slate-900 sm:text-lg">{config?.title || 'Architectural Design Studio'}</h1>
               </div>
             </div>
-            <div className="flex items-center gap-2">
-              {config && <span className="hidden max-w-56 truncate rounded-full bg-amber-50 px-3 py-1.5 text-[10px] font-semibold text-amber-800 sm:inline">{generationSource}</span>}
-              <button onClick={saveProject} disabled={!config} className="inline-flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-xs font-bold text-slate-700 disabled:opacity-40"><Check className="h-4 w-4" /> Save</button>
-              <button onClick={startNew} className="rounded-lg bg-slate-900 p-2 text-white hover:bg-slate-700" aria-label="New design"><Plus className="h-4 w-4" /></button>
+            <div className="flex shrink-0 items-center gap-2">
+              {config && <span className="hidden max-w-48 truncate rounded-full bg-amber-50 px-3 py-1.5 text-[10px] font-semibold text-amber-800 lg:inline">{generationSource}</span>}
+              <button onClick={saveProject} disabled={!config} className="inline-flex items-center gap-2 rounded-xl border border-slate-200 px-3 py-2 text-xs font-bold text-slate-700 disabled:opacity-40"><Check className="h-4 w-4" /> <span className="hidden sm:inline">Save</span></button>
+              <button onClick={startNew} className="rounded-xl bg-slate-900 p-2.5 text-white hover:bg-slate-700" aria-label="New design"><Plus className="h-4 w-4" /></button>
             </div>
           </div>
 
@@ -575,6 +618,7 @@ export default function DesignStudio() {
                   <label className="text-xs text-slate-500">Units<select className="input mt-1" value={configDraft.unit} onChange={(e) => setConfigDraft({ ...configDraft, unit: e.target.value })}><option>meters</option><option>feet</option><option>marla</option><option>kanal</option></select></label>
                   <label className="text-xs text-slate-500">Style<select className="input mt-1" value={configDraft.style} onChange={(e) => setConfigDraft({ ...configDraft, style: e.target.value })}><option>Modern</option><option>Contemporary</option><option>Traditional</option><option>Minimalist</option></select></label>
                   <label className="text-xs text-slate-500">Location<select className="input mt-1" value={configDraft.location} onChange={(e) => setConfigDraft({ ...configDraft, location: e.target.value })}>{LOCATIONS.map((location) => <option key={location}>{location}</option>)}</select></label>
+                  <label className="text-xs text-slate-500">Exterior material<select className="input mt-1" value={configDraft.material} onChange={(e) => setConfigDraft({ ...configDraft, material: e.target.value })}><option value="concrete">Concrete</option><option value="brick">Brick</option><option value="stone">Stone</option><option value="wood">Wood</option><option value="plaster">Plaster</option><option value="stone-glass">Stone and glass</option><option value="metal">Metal</option></select></label>
                   <label className="text-xs text-slate-500">Budget (optional)<input className="input mt-1" value={configDraft.budget} onChange={(e) => setConfigDraft({ ...configDraft, budget: e.target.value })} placeholder="PKR" /></label>
                   <button onClick={createFromConfiguration} className="col-span-2 rounded-xl bg-brand-orange px-4 py-2 text-xs font-bold text-white md:col-span-4">Generate from configuration</button>
                 </div>
@@ -584,50 +628,102 @@ export default function DesignStudio() {
             </div>
           ) : (
             <div className="flex min-h-0 flex-1 flex-col">
-              <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 bg-white px-4 py-3 sm:px-6">
-                <div className="flex gap-2">
-                  <button onClick={() => setTab('plan')} className={`rounded-lg px-4 py-2 text-xs font-bold ${tab === 'plan' ? 'bg-slate-900 text-white' : 'text-slate-500 hover:bg-slate-100'}`}>2D Floor Plan</button>
-                  <button onClick={() => setTab('model')} className={`rounded-lg px-4 py-2 text-xs font-bold ${tab === 'model' ? 'bg-slate-900 text-white' : 'text-slate-500 hover:bg-slate-100'}`}>3D Model</button>
-                </div>
-                <div className="flex flex-wrap items-center gap-2">
-                  <select aria-label="Floor selector" className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700" value={selectedFloor} onChange={(e) => setSelectedFloor(Number(e.target.value))}>{Array.from({ length: config.floors }, (_, index) => <option key={index} value={index}>Floor {index + 1}</option>)}</select>
-                  {tab === 'model' && <>
-                    <select aria-label="Camera view" className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700" value={viewMode} onChange={(e) => setViewMode(e.target.value)}>{['Perspective', 'Front', 'Rear', 'Left', 'Right', 'Top', 'Interior'].map((view) => <option key={view}>{view}</option>)}</select>
-                    <button type="button" onClick={undoEdit} disabled={!history.length} className="rounded-lg border border-slate-200 px-3 py-2 text-xs font-semibold disabled:opacity-40">Undo</button>
-                    <button type="button" onClick={redoEdit} disabled={!future.length} className="rounded-lg border border-slate-200 px-3 py-2 text-xs font-semibold disabled:opacity-40">Redo</button>
-                    <button type="button" onClick={exportIfc} title="Downloads an IFC2x3 wall index. It is not a certified Revit solid model." className="rounded-lg border border-slate-200 px-3 py-2 text-xs font-semibold">IFC index</button>
-                  </>}
-                  {tab === 'plan' ? <><select aria-label="Drawing sheet" className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold" value={sheet} onChange={(event) => setSheet(event.target.value)}><option value="floor">Floor plan</option><option value="elevation">Elevation</option><option value="section">Section</option></select><button onClick={() => setZoom((value) => Math.max(0.6, value - 0.1))} className="rounded-lg border border-slate-200 px-3 py-2 text-xs">−</button><span className="text-xs text-slate-500">{Math.round(zoom * 100)}%</span><button onClick={() => setZoom((value) => Math.min(1.5, value + 0.1))} className="rounded-lg border border-slate-200 px-3 py-2 text-xs">+</button><button onClick={exportSvg} className="rounded-lg border border-slate-200 px-3 py-2 text-xs font-semibold">SVG</button><button onClick={exportDxf} className="rounded-lg border border-slate-200 px-3 py-2 text-xs font-semibold">DXF</button><button onClick={exportPlanPng} className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-2 text-xs font-semibold"><FileImage className="h-3.5 w-3.5" /> PNG</button><button onClick={exportPlanPdf} className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-2 text-xs font-semibold"><Download className="h-3.5 w-3.5" /> PDF</button></> : <><button onClick={exportGlb} className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-2 text-xs font-semibold"><Box className="h-3.5 w-3.5" /> GLB</button><button onClick={exportStill} className="rounded-lg border border-slate-200 px-3 py-2 text-xs font-semibold">PBR still</button><button onClick={() => setZoom((value) => Math.min(1.8, value + 0.1))} className="rounded-lg border border-slate-200 px-3 py-2 text-xs">Zoom +</button><button onClick={() => setZoom((value) => Math.max(0.6, value - 0.1))} className="rounded-lg border border-slate-200 px-3 py-2 text-xs">Zoom −</button><button onClick={() => setZoom(1)} className="rounded-lg border border-slate-200 p-2 text-slate-600" aria-label="Reset camera"><RotateCcw className="h-3.5 w-3.5" /></button></>}
-                  <button onClick={() => generate('Regenerate the current design from the existing project requirements.')} disabled={isGenerating} className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-2 text-xs font-semibold disabled:opacity-50"><RotateCcw className="h-3.5 w-3.5" /> Regenerate</button>
+              <div className="border-b border-slate-200 bg-white px-3 py-3 sm:px-6">
+                <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                  <div className="inline-flex w-full rounded-2xl bg-slate-100 p-1 sm:w-auto">
+                    <button onClick={() => setTab('plan')} className={`flex-1 rounded-xl px-4 py-2.5 text-xs font-bold transition sm:flex-none ${tab === 'plan' ? 'bg-[#101828] text-white shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}>2D Floor Plan</button>
+                    <button onClick={() => setTab('model')} className={`flex-1 rounded-xl px-4 py-2.5 text-xs font-bold transition sm:flex-none ${tab === 'model' ? 'bg-[#101828] text-white shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}>3D Model</button>
+                  </div>
+                  <div className="-mx-3 flex gap-2 overflow-x-auto px-3 pb-1 [scrollbar-width:thin] sm:mx-0 sm:flex-wrap sm:overflow-visible sm:px-0 sm:pb-0">
+                    <select aria-label="Floor selector" className="shrink-0 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700" value={selectedFloor} onChange={(e) => setSelectedFloor(Number(e.target.value))}>{Array.from({ length: config.floors }, (_, index) => <option key={index} value={index}>Floor {index + 1}</option>)}</select>
+                    {tab === 'model' && <>
+                      <select aria-label="Camera view" className="shrink-0 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700" value={viewMode} onChange={(e) => { setViewMode(e.target.value); setFirstPerson(false); }}>{['Perspective', 'Front', 'Rear', 'Left', 'Right', 'Top', 'Interior'].map((view) => <option key={view}>{view}</option>)}</select>
+                      <button type="button" onClick={toggleLighting} className="shrink-0 rounded-xl border border-slate-200 px-3 py-2 text-xs font-semibold">{config.lighting === 'night' ? 'Day light' : 'Night light'}</button>
+                      <button type="button" onClick={() => setSectionCut((value) => !value)} className={`shrink-0 rounded-xl border px-3 py-2 text-xs font-semibold ${sectionCut ? 'border-orange-300 bg-orange-50 text-orange-800' : 'border-slate-200'}`}>Section</button>
+                      <button type="button" onClick={() => setHideExterior((value) => !value)} className={`shrink-0 rounded-xl border px-3 py-2 text-xs font-semibold ${hideExterior ? 'border-orange-300 bg-orange-50 text-orange-800' : 'border-slate-200'}`}>Hide walls</button>
+                      <button type="button" onClick={() => { setMeasureMode((value) => !value); setMeasurePoints([]); }} className={`shrink-0 rounded-xl border px-3 py-2 text-xs font-semibold ${measureMode ? 'border-orange-300 bg-orange-50 text-orange-800' : 'border-slate-200'}`}>Measure</button>
+                      <button type="button" onClick={() => { setFirstPerson((value) => !value); setViewMode('Interior'); }} className={`shrink-0 rounded-xl border px-3 py-2 text-xs font-semibold ${firstPerson ? 'border-orange-300 bg-orange-50 text-orange-800' : 'border-slate-200'}`}>Walk</button>
+                      <button type="button" onClick={undoEdit} disabled={!history.length} className="shrink-0 rounded-xl border border-slate-200 px-3 py-2 text-xs font-semibold disabled:opacity-40">Undo</button>
+                      <button type="button" onClick={redoEdit} disabled={!future.length} className="shrink-0 rounded-xl border border-slate-200 px-3 py-2 text-xs font-semibold disabled:opacity-40">Redo</button>
+                      <button type="button" onClick={exportIfc} title="Downloads an IFC2x3 wall index. It is not a certified Revit solid model." className="shrink-0 rounded-xl border border-slate-200 px-3 py-2 text-xs font-semibold">IFC</button>
+                    </>}
+                    {tab === 'plan' ? <>
+                      <select aria-label="Drawing sheet" className="shrink-0 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold" value={sheet} onChange={(event) => setSheet(event.target.value)}><option value="floor">Floor plan</option><option value="elev-front">Front elevation</option><option value="elev-rear">Rear elevation</option><option value="elev-left">Left elevation</option><option value="elev-right">Right elevation</option><option value="section-long">Longitudinal section</option><option value="section-cross">Cross section</option></select>
+                      <button onClick={() => setZoom((value) => Math.max(0.6, value - 0.1))} className="shrink-0 rounded-xl border border-slate-200 px-3 py-2 text-xs">−</button>
+                      <span className="shrink-0 self-center text-xs text-slate-500">{Math.round(zoom * 100)}%</span>
+                      <button onClick={() => setZoom((value) => Math.min(1.5, value + 0.1))} className="shrink-0 rounded-xl border border-slate-200 px-3 py-2 text-xs">+</button>
+                      <button onClick={exportSvg} className="shrink-0 rounded-xl border border-slate-200 px-3 py-2 text-xs font-semibold">SVG</button>
+                      <button onClick={exportDxf} className="shrink-0 rounded-xl border border-slate-200 px-3 py-2 text-xs font-semibold">DXF</button>
+                      <button onClick={exportPlanPng} className="inline-flex shrink-0 items-center gap-1.5 rounded-xl border border-slate-200 px-3 py-2 text-xs font-semibold"><FileImage className="h-3.5 w-3.5" /> PNG</button>
+                      <button onClick={exportPlanPdf} className="inline-flex shrink-0 items-center gap-1.5 rounded-xl border border-slate-200 px-3 py-2 text-xs font-semibold"><Download className="h-3.5 w-3.5" /> PDF</button>
+                    </> : <>
+                      <button onClick={exportGlb} className="inline-flex shrink-0 items-center gap-1.5 rounded-xl border border-slate-200 px-3 py-2 text-xs font-semibold"><Box className="h-3.5 w-3.5" /> GLB</button>
+                      <button onClick={exportStill} className="shrink-0 rounded-xl border border-slate-200 px-3 py-2 text-xs font-semibold">Still</button>
+                      <button onClick={() => setZoom((value) => Math.min(1.8, value + 0.1))} className="shrink-0 rounded-xl border border-slate-200 px-3 py-2 text-xs">Zoom +</button>
+                      <button onClick={() => setZoom((value) => Math.max(0.6, value - 0.1))} className="shrink-0 rounded-xl border border-slate-200 px-3 py-2 text-xs">Zoom −</button>
+                      <button onClick={() => setZoom(1)} className="shrink-0 rounded-xl border border-slate-200 p-2 text-slate-600" aria-label="Reset camera"><RotateCcw className="h-3.5 w-3.5" /></button>
+                    </>}
+                    <button onClick={() => generate('Regenerate the current design from the existing project requirements.')} disabled={isGenerating} className="inline-flex shrink-0 items-center gap-1.5 rounded-xl border border-slate-200 px-3 py-2 text-xs font-semibold disabled:opacity-50"><RotateCcw className="h-3.5 w-3.5" /> Regen</button>
+                  </div>
                 </div>
               </div>
 
-              <div className="grid min-h-0 flex-1 xl:grid-cols-[minmax(0,1fr)_340px]">
-                <section className="relative min-h-[420px] bg-slate-100 p-4 sm:p-6">
+              <div className="grid min-h-0 flex-1 xl:grid-cols-[minmax(0,1fr)_minmax(300px,360px)]">
+                <section className="relative order-1 min-h-[360px] bg-gradient-to-b from-slate-100 to-slate-200/60 p-3 sm:min-h-[420px] sm:p-6">
                   {tab === 'plan' ? (
-                    <div className="flex h-full min-h-[390px] items-center justify-center overflow-auto rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
-                      <div style={{ transform: `scale(${zoom})`, transformOrigin: 'center' }} className="w-full max-w-5xl transition-transform" dangerouslySetInnerHTML={{ __html: svg }} />
+                    <div className="flex h-full min-h-[320px] items-center justify-center overflow-auto rounded-2xl border border-slate-200 bg-white p-2 shadow-sm sm:min-h-[390px] sm:p-4">
+                      <div data-design-plan style={{ transform: `scale(${zoom})`, transformOrigin: 'center top' }} className="w-full max-w-5xl transition-transform [&_svg]:mx-auto [&_svg]:h-auto [&_svg]:max-w-full" dangerouslySetInnerHTML={{ __html: svg }} />
                     </div>
                   ) : (
-                    <div className="group relative h-[min(70vh,720px)] min-h-[480px] overflow-hidden rounded-2xl border border-slate-200 bg-gradient-to-b from-sky-100 to-slate-200 shadow-sm" data-model-export>
-                      <Canvas key={`${config.lighting || 'day'}-${config.exteriorMaterial || 'concrete'}`} camera={{ position: [Math.max(config.width, config.depth) * 1.8, Math.max(config.width, config.depth) * 1.2, Math.max(config.width, config.depth) * 1.8], fov: 42 }} shadows frameloop="always" gl={{ antialias: true, preserveDrawingBuffer: true }} onPointerMissed={() => setSelection(null)}>
+                    <div className="group relative h-[min(62vh,720px)] min-h-[360px] overflow-hidden rounded-2xl border border-slate-200 bg-gradient-to-b from-sky-100 to-slate-200 shadow-sm sm:min-h-[480px]" data-model-export>
+                      <Canvas
+                        key={`${config.lighting || 'day'}-${config.exteriorMaterial || 'concrete'}-${sectionCut}-${hideExterior}`}
+                        camera={{ position: [Math.max(config.width, config.depth) * 1.8, Math.max(config.width, config.depth) * 1.2, Math.max(config.width, config.depth) * 1.8], fov: firstPerson ? 70 : 42 }}
+                        shadows
+                        frameloop="always"
+                        gl={{ antialias: true, preserveDrawingBuffer: true, localClippingEnabled: true }}
+                        onPointerMissed={() => { if (!measureMode) setSelection(null); }}
+                      >
                         <SceneReady onReady={setSceneForExport} targetY={viewMode === 'Interior' || viewMode === 'Top' ? selectedFloor * (config.unit === 'feet' ? 11 : 3.2) + 1.4 : config.floors * 1.4} />
-                        <CameraRig view={viewMode} span={Math.max(config.width, config.depth) / zoom} targetY={viewMode === 'Interior' ? selectedFloor * (config.unit === 'feet' ? 11 : 3.2) + 1.5 : config.floors * 1.2} />
-                        <ambientLight intensity={config.lighting === 'night' ? 0.15 : 0.45} />
-                        <directionalLight position={[18, 28, 12]} intensity={config.lighting === 'night' ? 0.25 : 2.4} castShadow color={config.lighting === 'night' ? '#93c5fd' : '#fff7ed'} />
-                        <hemisphereLight intensity={config.lighting === 'night' ? 0.2 : 0.55} color={config.lighting === 'night' ? '#1e3a8a' : '#f8fafc'} groundColor="#78716c" />
-                        <BuildingGeometry config={config} floor={selectedFloor} viewMode={viewMode} selection={selection} onSelect={setSelection} />
-                        <ContactShadows position={[0, 0, 0]} opacity={0.3} blur={2.5} far={45} />
-                        <OrbitControls makeDefault target={[0, viewMode === 'Interior' ? selectedFloor * (config.unit === 'feet' ? 11 : 3.2) + 1.5 : config.floors * 1.2, 0]} enablePan enableZoom enableRotate />
+                        {!firstPerson && <CameraRig view={viewMode} span={Math.max(config.width, config.depth) / zoom} targetY={viewMode === 'Interior' ? selectedFloor * (config.unit === 'feet' ? 11 : 3.2) + 1.5 : config.floors * 1.2} />}
+                        <color attach="background" args={[config.lighting === 'night' ? '#0f172a' : '#bfd4ea']} />
+                        {config.lighting !== 'night' && <Sky sunPosition={[80, 40, 20]} turbidity={4} rayleigh={0.6} />}
+                        <Environment preset={config.lighting === 'night' ? 'night' : 'city'} environmentIntensity={config.lighting === 'night' ? 0.15 : 0.55} />
+                        <ambientLight intensity={config.lighting === 'night' ? 0.12 : 0.35} />
+                        <directionalLight position={[22, 34, 14]} intensity={config.lighting === 'night' ? 0.2 : 2.8} castShadow shadow-mapSize={[2048, 2048]} color={config.lighting === 'night' ? '#93c5fd' : '#fff7ed'} />
+                        <hemisphereLight intensity={config.lighting === 'night' ? 0.18 : 0.5} color={config.lighting === 'night' ? '#1e3a8a' : '#f8fafc'} groundColor="#78716c" />
+                        <BuildingGeometry
+                          config={config}
+                          floor={selectedFloor}
+                          viewMode={viewMode}
+                          selection={selection}
+                          onSelect={setSelection}
+                          sectionCut={sectionCut}
+                          hideExterior={hideExterior}
+                          measureMode={measureMode}
+                          measurePoints={measurePoints}
+                          onMeasure={(point) => setMeasurePoints((current) => (current.length >= 2 ? [point] : [...current, point]))}
+                        />
+                        <ContactShadows position={[0, 0.01, 0]} opacity={0.42} blur={2.8} far={55} />
+                        {firstPerson
+                          ? <PointerLockControls />
+                          : <OrbitControls makeDefault target={[0, viewMode === 'Interior' ? selectedFloor * (config.unit === 'feet' ? 11 : 3.2) + 1.5 : config.floors * 1.2, 0]} enablePan enableZoom enableRotate />}
                       </Canvas>
                       <button onClick={(event) => event.currentTarget.parentElement.requestFullscreen?.()} className="absolute right-3 top-3 rounded-lg border border-white/60 bg-white/80 p-2 text-slate-700 shadow-sm backdrop-blur"><Fullscreen className="h-4 w-4" /></button>
-                      <div className="absolute bottom-3 left-3 max-w-md rounded-lg bg-white/85 px-3 py-2 text-xs text-slate-600 backdrop-blur">{viewMode} · Floor {selectedFloor + 1} of {config.floors} · Real-time PBR of this model, not an offline render or a separate picture</div>
+                      <div className="absolute bottom-3 left-3 max-w-xl rounded-lg bg-white/90 px-3 py-2 text-xs text-slate-600 backdrop-blur">
+                        {viewMode} · Floor {selectedFloor + 1}/{config.floors}
+                        {sectionCut ? ' · Section cut on' : ''}
+                        {hideExterior ? ' · Exterior walls hidden' : ''}
+                        {firstPerson ? ' · Click canvas, then WASD / mouse look' : ''}
+                        {measureMode ? (measureDistance != null ? ` · Measure ${measureDistance.toFixed(2)} ${config.unit}` : ' · Click two points on the model') : ''}
+                        {' · '}Room names + lengths on the active floor · outside windows on every facade
+                      </div>
                     </div>
                   )}
                   <p className="mt-3 text-center text-[11px] text-slate-500">Conceptual geometry for planning only; validate drawings, dimensions, structure, and code with qualified local professionals.</p>
                 </section>
 
-                <aside className="flex min-h-0 flex-col border-l border-slate-200 bg-white">
+                <aside className="order-2 flex min-h-[420px] flex-col border-t border-slate-200 bg-white xl:min-h-0 xl:border-l xl:border-t-0">
                   <div className="border-b border-slate-100 p-4">
                     <div className="flex items-center justify-between"><h2 className="text-sm font-bold text-slate-900">Design specifications</h2><button onClick={() => setTab('plan')} className="text-xs font-semibold text-brand-orange"><Pencil className="mr-1 inline h-3.5 w-3.5" /> Edit</button></div>
                     <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
@@ -673,21 +769,205 @@ function ChatComposer({ prompt, setPrompt, onSend, isGenerating, attachment, set
 }
 
 const SURFACE_MATERIALS = {
-  concrete: { color: '#d6d3d1', roughness: 0.86, metalness: 0.02 },
-  brick: { color: '#9a3412', roughness: 0.92, metalness: 0 },
-  stone: { color: '#a8a29e', roughness: 0.78, metalness: 0.04 },
-  wood: { color: '#a16207', roughness: 0.62, metalness: 0 },
-  plaster: { color: '#fafaf9', roughness: 0.94, metalness: 0 },
-  'stone-glass': { color: '#e7e5e4', roughness: 0.55, metalness: 0.08 },
+  concrete: { color: '#d0cbc4', roughness: 0.78, metalness: 0.05, envMapIntensity: 0.6 },
+  brick: { color: '#a34a2e', roughness: 0.88, metalness: 0.03, envMapIntensity: 0.4 },
+  stone: { color: '#b7b1a8', roughness: 0.7, metalness: 0.08, envMapIntensity: 0.7 },
+  wood: { color: '#a16207', roughness: 0.55, metalness: 0.05, envMapIntensity: 0.45 },
+  plaster: { color: '#f3f0ea', roughness: 0.9, metalness: 0.02, envMapIntensity: 0.45 },
+  'stone-glass': { color: '#e8e4de', roughness: 0.38, metalness: 0.2, envMapIntensity: 1.15 },
+  metal: { color: '#8ea0b5', roughness: 0.26, metalness: 0.88, envMapIntensity: 1.45 },
 };
 
-function BuildingGeometry({ config, floor, viewMode, selection, onSelect }) {
+function formatLength(value, unit) {
+  const number = Number(value) || 0;
+  const digits = unit === 'feet' ? 1 : 2;
+  return `${number.toFixed(digits)} ${unit === 'feet' ? 'ft' : 'm'}`;
+}
+
+/** Outside facade windows on every floor — not only rooms tagged with window:true. */
+function FacadeWindows({ width, depth, floors, floorHeight, hideExterior, night, matProps }) {
+  if (hideExterior) return null;
+  const faces = [
+    { axis: 'z', sign: 1, span: width, wallPos: depth / 2 + 0.06 },
+    { axis: 'z', sign: -1, span: width, wallPos: -depth / 2 - 0.06 },
+    { axis: 'x', sign: -1, span: depth, wallPos: -width / 2 - 0.06 },
+    { axis: 'x', sign: 1, span: depth, wallPos: width / 2 + 0.06 },
+  ];
+  const winW = Math.min(1.45, Math.max(0.9, width * 0.08));
+  const winH = floorHeight * 0.42;
+  const gap = winW * 0.55;
+  const items = [];
+  for (let floorIndex = 0; floorIndex < floors; floorIndex += 1) {
+    const sillY = floorIndex * floorHeight + floorHeight * 0.42;
+    for (const face of faces) {
+      const count = Math.max(2, Math.floor((face.span - 1.4) / (winW + gap)));
+      const total = count * winW + (count - 1) * gap;
+      const start = -total / 2 + winW / 2;
+      for (let i = 0; i < count; i += 1) {
+        // Leave a door bay on the front ground floor center
+        if (face.axis === 'z' && face.sign === 1 && floorIndex === 0 && Math.abs(start + i * (winW + gap)) < winW * 0.8) continue;
+        const along = start + i * (winW + gap);
+        const position = face.axis === 'z'
+          ? [along, sillY, face.wallPos]
+          : [face.wallPos, sillY, along];
+        const rotation = face.axis === 'x' ? [0, Math.PI / 2, 0] : [0, 0, 0];
+        items.push({ key: `${floorIndex}-${face.axis}-${face.sign}-${i}`, position, rotation });
+      }
+    }
+  }
+  return (
+    <group>
+      {items.map((item) => (
+        <group key={item.key} position={item.position} rotation={item.rotation}>
+          <mesh castShadow>
+            <boxGeometry args={[winW + 0.12, winH + 0.12, 0.08]} />
+            <meshStandardMaterial {...matProps({ color: '#3f3f46', metalness: 0.55, roughness: 0.35, envMapIntensity: 0.8 })} />
+          </mesh>
+          <mesh position={[0, 0, 0.04]} castShadow>
+            <boxGeometry args={[winW, winH, 0.05]} />
+            <meshPhysicalMaterial {...matProps({
+              color: night ? '#93c5fd' : '#b9dcff',
+              roughness: 0.05,
+              metalness: 0.15,
+              transmission: night ? 0.35 : 0.82,
+              thickness: 0.25,
+              transparent: true,
+              opacity: night ? 0.85 : 0.55,
+              envMapIntensity: 1.6,
+              emissive: night ? '#fbbf24' : '#000000',
+              emissiveIntensity: night ? 0.25 : 0,
+            })} />
+          </mesh>
+          <mesh position={[0, 0, 0.045]}>
+            <boxGeometry args={[0.04, winH, 0.02]} />
+            <meshStandardMaterial {...matProps({ color: '#52525b', metalness: 0.5, roughness: 0.4 })} />
+          </mesh>
+          <mesh position={[0, -winH / 2 - 0.06, 0.02]}>
+            <boxGeometry args={[winW + 0.18, 0.06, 0.12]} />
+            <meshStandardMaterial {...matProps({ color: '#a8a29e', roughness: 0.7 })} />
+          </mesh>
+        </group>
+      ))}
+    </group>
+  );
+}
+
+function RoomLabels({ rooms, width, depth, floorIndex, floorHeight, unit, visible }) {
+  if (!visible) return null;
+  return (
+    <group>
+      {rooms.map((room) => {
+        const x = room.x + room.width / 2 - width / 2;
+        const z = room.y + room.depth / 2 - depth / 2;
+        const y = floorIndex * floorHeight + 0.55;
+        return (
+          <Billboard key={`label-${floorIndex}-${room.id || room.name}`} position={[x, y, z]} follow lockX={false} lockZ={false}>
+            <Html center distanceFactor={14} style={{ pointerEvents: 'none', userSelect: 'none' }}>
+              <div className="rounded-lg border border-slate-200/90 bg-white/95 px-2 py-1 text-center shadow-md backdrop-blur-sm">
+                <div className="whitespace-nowrap text-[11px] font-bold text-slate-900">{room.name}</div>
+                <div className="whitespace-nowrap text-[10px] font-semibold text-[#FF7518]">
+                  {formatLength(room.width, unit)} × {formatLength(room.depth, unit)}
+                </div>
+              </div>
+            </Html>
+          </Billboard>
+        );
+      })}
+    </group>
+  );
+}
+
+function BuildingDimensions({ width, depth, floors, floorHeight, unit }) {
+  const y = 0.35;
+  const lift = floors * floorHeight + 1.1;
+  return (
+    <group>
+      {/* Width dimension along front */}
+      <Line points={[[-width / 2, y, depth / 2 + 1.4], [width / 2, y, depth / 2 + 1.4]]} color="#FF7518" lineWidth={2} />
+      <Line points={[[-width / 2, 0.05, depth / 2 + 1.1], [-width / 2, y, depth / 2 + 1.4]]} color="#FF7518" lineWidth={1} />
+      <Line points={[[width / 2, 0.05, depth / 2 + 1.1], [width / 2, y, depth / 2 + 1.4]]} color="#FF7518" lineWidth={1} />
+      <Billboard position={[0, y + 0.25, depth / 2 + 1.4]}>
+        <Html center distanceFactor={16} style={{ pointerEvents: 'none' }}>
+          <div className="whitespace-nowrap rounded-md bg-[#101828] px-2 py-0.5 text-[10px] font-bold text-white shadow">
+            Width {formatLength(width, unit)}
+          </div>
+        </Html>
+      </Billboard>
+      {/* Depth dimension along side */}
+      <Line points={[[width / 2 + 1.4, y, -depth / 2], [width / 2 + 1.4, y, depth / 2]]} color="#FF7518" lineWidth={2} />
+      <Line points={[[width / 2 + 1.1, 0.05, -depth / 2], [width / 2 + 1.4, y, -depth / 2]]} color="#FF7518" lineWidth={1} />
+      <Line points={[[width / 2 + 1.1, 0.05, depth / 2], [width / 2 + 1.4, y, depth / 2]]} color="#FF7518" lineWidth={1} />
+      <Billboard position={[width / 2 + 1.4, y + 0.25, 0]}>
+        <Html center distanceFactor={16} style={{ pointerEvents: 'none' }}>
+          <div className="whitespace-nowrap rounded-md bg-[#101828] px-2 py-0.5 text-[10px] font-bold text-white shadow">
+            Depth {formatLength(depth, unit)}
+          </div>
+        </Html>
+      </Billboard>
+      {/* Height */}
+      <Line points={[[-width / 2 - 1.2, 0, -depth / 2], [-width / 2 - 1.2, floors * floorHeight, -depth / 2]]} color="#0ea5e9" lineWidth={2} />
+      <Billboard position={[-width / 2 - 1.2, lift / 2, -depth / 2]}>
+        <Html center distanceFactor={16} style={{ pointerEvents: 'none' }}>
+          <div className="whitespace-nowrap rounded-md bg-sky-700 px-2 py-0.5 text-[10px] font-bold text-white shadow">
+            Height {formatLength(floors * floorHeight, unit)} · {floors} floor{floors === 1 ? '' : 's'}
+          </div>
+        </Html>
+      </Billboard>
+    </group>
+  );
+}
+
+function MainEntrance({ width, depth, floorHeight, matProps }) {
+  const doorW = Math.min(2.4, width * 0.18);
+  const doorH = floorHeight * 0.78;
+  return (
+    <group position={[0, doorH / 2, depth / 2 + 0.08]}>
+      <mesh castShadow>
+        <boxGeometry args={[doorW + 0.35, doorH + 0.25, 0.12]} />
+        <meshStandardMaterial {...matProps({ color: '#292524', metalness: 0.4, roughness: 0.45 })} />
+      </mesh>
+      <mesh position={[-doorW * 0.26, 0, 0.05]} castShadow>
+        <boxGeometry args={[doorW * 0.45, doorH * 0.92, 0.06]} />
+        <meshPhysicalMaterial {...matProps({ color: '#93c5fd', roughness: 0.08, transmission: 0.7, transparent: true, opacity: 0.55, thickness: 0.2 })} />
+      </mesh>
+      <mesh position={[doorW * 0.26, 0, 0.05]} castShadow>
+        <boxGeometry args={[doorW * 0.45, doorH * 0.92, 0.06]} />
+        <meshPhysicalMaterial {...matProps({ color: '#93c5fd', roughness: 0.08, transmission: 0.7, transparent: true, opacity: 0.55, thickness: 0.2 })} />
+      </mesh>
+      <mesh position={[0, doorH / 2 + 0.28, 0.55]} castShadow>
+        <boxGeometry args={[doorW + 1.4, 0.12, 1.2]} />
+        <meshStandardMaterial {...matProps({ color: '#57534e', metalness: 0.35, roughness: 0.4 })} />
+      </mesh>
+      <Billboard position={[0, doorH / 2 + 0.55, 0.8]}>
+        <Html center distanceFactor={18} style={{ pointerEvents: 'none' }}>
+          <div className="whitespace-nowrap rounded bg-white/90 px-2 py-0.5 text-[10px] font-bold text-slate-800 shadow">Main entrance</div>
+        </Html>
+      </Billboard>
+    </group>
+  );
+}
+
+function BuildingGeometry({
+  config,
+  floor,
+  viewMode,
+  selection,
+  onSelect,
+  sectionCut = false,
+  hideExterior = false,
+  measureMode = false,
+  measurePoints = [],
+  onMeasure,
+}) {
   const width = Math.max(6, Number(config.width) || 18);
   const depth = Math.max(6, Number(config.depth) || 14);
   const drawing = buildDrawing(config, floor);
   const floorHeight = drawing.floorHeight;
   const stairX = config.stairsPosition === 'left' ? -width * 0.31 : config.stairsPosition === 'rear' ? 0 : width * 0.31;
   const exterior = SURFACE_MATERIALS[config.exteriorMaterial] || SURFACE_MATERIALS.concrete;
+  const clipPlanes = useMemo(() => (
+    sectionCut ? [new THREE.Plane(new THREE.Vector3(0, 0, -1), depth * 0.08)] : []
+  ), [sectionCut, depth]);
 
   if (['Road', 'Tunnel', 'Parking', 'Landscape', 'Bridge'].includes(config.projectType)) {
     return <group position={[0, -0.1, 0]}>
@@ -699,57 +979,211 @@ function BuildingGeometry({ config, floor, viewMode, selection, onSelect }) {
         <mesh position={[width / 2 - 0.2, 2.1, 0]}><boxGeometry args={[0.4, 4.2, depth]} /><meshStandardMaterial color="#94a3b8" /></mesh>
         <mesh position={[0, 4.1, 0]}><boxGeometry args={[width, 0.35, depth]} /><meshStandardMaterial color="#64748b" /></mesh>
       </>}
-      <OrbitControls makeDefault enablePan enableZoom enableRotate />
     </group>;
   }
 
   const floorsToDraw = viewMode === 'Interior' ? [floor] : Array.from({ length: config.floors }, (_, index) => index);
   const choose = (payload) => (event) => {
     event.stopPropagation();
+    if (measureMode) {
+      onMeasure?.([event.point.x, event.point.y, event.point.z]);
+      return;
+    }
     onSelect?.(payload);
   };
+  const matProps = (extra = {}) => ({
+    ...extra,
+    clippingPlanes: clipPlanes,
+    clipShadows: true,
+  });
+
+  const unit = config.unit === 'feet' ? 'feet' : 'meters';
+  const showLabels = viewMode !== 'Interior';
+  const labelFloor = viewMode === 'Interior' ? floor : floor;
+
   return (
     <group position={[0, 0, 0]}>
-      <mesh position={[0, -0.08, 0]} receiveShadow><boxGeometry args={[width + 16, 0.16, depth + 16]} /><meshStandardMaterial color="#a8a29e" roughness={0.95} /></mesh>
-      {config.garden && <mesh position={[-width / 2 - 3, 0.02, 0]}><boxGeometry args={[3, 0.08, depth + 3]} /><meshStandardMaterial color="#4d7c0f" roughness={0.9} /></mesh>}
-      {config.parking && <ParkingArea width={width} depth={depth} />}
+      <SiteContext width={width} depth={depth} floors={config.floors} floorHeight={floorHeight} night={config.lighting === 'night'} garden={config.garden !== false} parking={config.parking !== false} />
       {floorsToDraw.map((floorIndex) => {
         const level = buildDrawing(config, floorIndex);
-        return <group key={floorIndex}>
-          <mesh position={[0, floorIndex * floorHeight + 0.08, 0]} receiveShadow><boxGeometry args={[width, 0.16, depth]} /><meshStandardMaterial color="#d6d3d1" roughness={0.8} /></mesh>
-          {level.rooms.map((room) => {
-            const active = selection?.kind === 'room' && selection.name === room.name && selection.floor === floorIndex;
-            return <mesh key={room.id || room.name} position={[room.x + room.width / 2 - width / 2, floorIndex * floorHeight + 0.18, room.y + room.depth / 2 - depth / 2]} onClick={choose({ kind: 'room', name: room.name, floor: floorIndex, width: room.width, depth: room.depth })}>
-              <boxGeometry args={[Math.max(room.width * 0.92, 0.4), 0.06, Math.max(room.depth * 0.92, 0.4)]} />
-              <meshStandardMaterial color={active ? '#fdba74' : '#e7e5e4'} roughness={0.9} />
-            </mesh>;
-          })}
-          {level.walls.filter((wall) => viewMode !== 'Interior' || wall.kind === 'internal' || wall.y1 > 0.2).map((wall, index) => {
-            const length = Math.hypot(wall.x2 - wall.x1, wall.y2 - wall.y1);
-            const angle = Math.atan2(wall.y2 - wall.y1, wall.x2 - wall.x1);
-            const wallId = `${floorIndex}-${index}`;
-            const active = selection?.kind === 'wall' && selection.id === wallId;
-            return <mesh key={wallId} position={[(wall.x1 + wall.x2) / 2 - width / 2, floorIndex * floorHeight + floorHeight / 2, (wall.y1 + wall.y2) / 2 - depth / 2]} rotation={[0, -angle, 0]} castShadow receiveShadow onClick={choose({ kind: 'wall', id: wallId, floor: floorIndex, length: Number(length.toFixed(2)), thickness: wall.thickness, role: wall.kind })}>
-              <boxGeometry args={[length, floorHeight, wall.thickness]} />
-              <meshStandardMaterial color={active ? '#fb923c' : wall.kind === 'external' ? exterior.color : '#f5f5f4'} roughness={wall.kind === 'external' ? exterior.roughness : 0.9} metalness={wall.kind === 'external' ? exterior.metalness : 0} />
-            </mesh>;
-          })}
-          {level.openings.filter((item) => item.type === 'window').map((opening, index) => <mesh key={`window-${index}`} position={[opening.x - width / 2, floorIndex * floorHeight + floorHeight * 0.55, opening.y - depth / 2 + 0.08]}>
-            <boxGeometry args={[opening.width, floorHeight * 0.38, 0.06]} />
-            <meshPhysicalMaterial color="#dbeafe" roughness={0.05} metalness={0} transmission={0.72} thickness={0.2} transparent opacity={0.55} />
-          </mesh>)}
-          {level.openings.filter((item) => item.type === 'door' && floorIndex === 0).slice(0, 1).map((opening) => <mesh key="entry" position={[opening.x - width / 2, floorHeight * 0.38, depth / 2 + 0.05]}>
-            <boxGeometry args={[opening.width * 0.7, floorHeight * 0.72, 0.08]} />
-            <meshStandardMaterial color="#7c4a2d" roughness={0.55} />
-          </mesh>)}
+        return (
+          <group key={floorIndex}>
+            <mesh position={[0, floorIndex * floorHeight + 0.08, 0]} receiveShadow onClick={choose({ kind: 'slab', floor: floorIndex })}>
+              <boxGeometry args={[width, 0.18, depth]} />
+              <meshStandardMaterial {...matProps({ color: '#d8d3cb', roughness: 0.78, metalness: 0.05, envMapIntensity: 0.4 })} />
+            </mesh>
+            {/* Floor slab edge band for a finished facade look */}
+            <mesh position={[0, floorIndex * floorHeight + 0.02, 0]} receiveShadow>
+              <boxGeometry args={[width + 0.12, 0.12, depth + 0.12]} />
+              <meshStandardMaterial {...matProps({ color: exterior.color, roughness: exterior.roughness, metalness: exterior.metalness, envMapIntensity: exterior.envMapIntensity })} />
+            </mesh>
+            {level.rooms.map((room) => {
+              const active = selection?.kind === 'room' && selection.name === room.name && selection.floor === floorIndex;
+              return (
+                <mesh
+                  key={room.id || room.name}
+                  position={[room.x + room.width / 2 - width / 2, floorIndex * floorHeight + 0.2, room.y + room.depth / 2 - depth / 2]}
+                  onClick={choose({ kind: 'room', name: room.name, floor: floorIndex, width: room.width, depth: room.depth })}
+                >
+                  <boxGeometry args={[Math.max(room.width * 0.92, 0.4), 0.05, Math.max(room.depth * 0.92, 0.4)]} />
+                  <meshStandardMaterial {...matProps({ color: active ? '#fdba74' : '#efeae3', roughness: 0.88 })} />
+                </mesh>
+              );
+            })}
+            {level.walls
+              .filter((wall) => !(hideExterior && wall.kind === 'external'))
+              .filter((wall) => viewMode !== 'Interior' || wall.kind === 'internal' || wall.y1 > 0.2)
+              .map((wall, index) => {
+                const length = Math.hypot(wall.x2 - wall.x1, wall.y2 - wall.y1);
+                const angle = Math.atan2(wall.y2 - wall.y1, wall.x2 - wall.x1);
+                const wallId = `${floorIndex}-${index}`;
+                const active = selection?.kind === 'wall' && selection.id === wallId;
+                const isExternal = wall.kind === 'external';
+                return (
+                  <mesh
+                    key={wallId}
+                    position={[(wall.x1 + wall.x2) / 2 - width / 2, floorIndex * floorHeight + floorHeight / 2, (wall.y1 + wall.y2) / 2 - depth / 2]}
+                    rotation={[0, -angle, 0]}
+                    castShadow
+                    receiveShadow
+                    onClick={choose({ kind: 'wall', id: wallId, floor: floorIndex, length: Number(length.toFixed(2)), thickness: wall.thickness, role: wall.kind })}
+                  >
+                    <boxGeometry args={[length, floorHeight * 0.98, isExternal ? wall.thickness * 1.15 : wall.thickness]} />
+                    <meshStandardMaterial {...matProps({
+                      color: active ? '#fb923c' : isExternal ? exterior.color : '#f8fafc',
+                      roughness: isExternal ? exterior.roughness : 0.9,
+                      metalness: isExternal ? exterior.metalness : 0,
+                      envMapIntensity: isExternal ? exterior.envMapIntensity : 0.25,
+                    })} />
+                  </mesh>
+                );
+              })}
+            <RoomLabels
+              rooms={level.rooms}
+              width={width}
+              depth={depth}
+              floorIndex={floorIndex}
+              floorHeight={floorHeight}
+              unit={unit}
+              visible={showLabels && floorIndex === labelFloor}
+            />
+          </group>
+        );
+      })}
+
+      <FacadeWindows
+        width={width}
+        depth={depth}
+        floors={config.floors}
+        floorHeight={floorHeight}
+        hideExterior={hideExterior}
+        night={config.lighting === 'night'}
+        matProps={matProps}
+      />
+      <MainEntrance width={width} depth={depth} floorHeight={floorHeight} matProps={matProps} />
+      {showLabels && (
+        <BuildingDimensions width={width} depth={depth} floors={config.floors} floorHeight={floorHeight} unit={unit} />
+      )}
+
+      {/* Roof + parapet */}
+      <mesh position={[0, config.floors * floorHeight + 0.12, 0]} castShadow receiveShadow>
+        <boxGeometry args={[width + 0.35, 0.22, depth + 0.35]} />
+        <meshStandardMaterial {...matProps({ color: '#3f3f46', roughness: 0.5, metalness: 0.28, envMapIntensity: 0.75 })} />
+      </mesh>
+      <mesh position={[0, config.floors * floorHeight + 0.42, 0]}>
+        <boxGeometry args={[width + 0.55, 0.35, depth + 0.55]} />
+        <meshStandardMaterial {...matProps({ color: exterior.color, roughness: exterior.roughness, metalness: exterior.metalness, transparent: true, opacity: 0.35, envMapIntensity: exterior.envMapIntensity })} />
+      </mesh>
+      {/* Parapet walls */}
+      {[[0, depth / 2 + 0.18], [0, -depth / 2 - 0.18]].map(([x, z], index) => (
+        <mesh key={`para-z-${index}`} position={[x, config.floors * floorHeight + 0.55, z]} castShadow>
+          <boxGeometry args={[width + 0.55, 0.55, 0.12]} />
+          <meshStandardMaterial {...matProps({ color: exterior.color, roughness: exterior.roughness, metalness: exterior.metalness })} />
+        </mesh>
+      ))}
+      {[[width / 2 + 0.18, 0], [-width / 2 - 0.18, 0]].map(([x, z], index) => (
+        <mesh key={`para-x-${index}`} position={[x, config.floors * floorHeight + 0.55, z]} castShadow>
+          <boxGeometry args={[0.12, 0.55, depth + 0.55]} />
+          <meshStandardMaterial {...matProps({ color: exterior.color, roughness: exterior.roughness, metalness: exterior.metalness })} />
+        </mesh>
+      ))}
+
+      {config.balconies && Array.from({ length: Math.max(config.floors - 1, 0) }, (_, index) => (
+        <group key={`balcony-${index}`} position={[0, (index + 1) * floorHeight + 0.16, depth / 2 + 1.15]}>
+          <mesh castShadow receiveShadow><boxGeometry args={[width * 0.48, 0.12, 2.3]} /><meshStandardMaterial {...matProps({ color: '#d6d3d1', roughness: 0.7, metalness: 0.08 })} /></mesh>
+          <mesh position={[0, 0.55, 1.05]}><boxGeometry args={[width * 0.48, 0.08, 0.08]} /><meshStandardMaterial {...matProps({ color: '#94a3b8', metalness: 0.7, roughness: 0.3 })} /></mesh>
+          <mesh position={[-width * 0.22, 0.45, 0]}><boxGeometry args={[0.06, 0.9, 2.1]} /><meshStandardMaterial {...matProps({ color: '#94a3b8', metalness: 0.65, roughness: 0.3 })} /></mesh>
+          <mesh position={[width * 0.22, 0.45, 0]}><boxGeometry args={[0.06, 0.9, 2.1]} /><meshStandardMaterial {...matProps({ color: '#94a3b8', metalness: 0.65, roughness: 0.3 })} /></mesh>
+        </group>
+      ))}
+      {config.roofUtility !== false && (
+        <mesh position={[width * 0.22, config.floors * floorHeight + 0.95, -depth * 0.15]} castShadow>
+          <boxGeometry args={[width * 0.22, 1.2, depth * 0.18]} />
+          <meshStandardMaterial {...matProps({ color: '#71717a', roughness: 0.42, metalness: 0.4 })} />
+        </mesh>
+      )}
+      {config.lighting === 'night' && (
+        <>
+          <pointLight position={[0, floor * floorHeight + 2.2, 0]} intensity={10} distance={Math.max(width, depth) * 1.4} color="#fdba74" />
+          <pointLight position={[width / 2 + 2, 3.2, depth / 2 + 2]} intensity={6} distance={18} color="#fde68a" />
+        </>
+      )}
+      <InteriorStairs x={stairX} y={floor * floorHeight} z={config.stairsPosition === 'rear' ? -depth * 0.25 : 0} />
+      {measurePoints.map((point, index) => (
+        <mesh key={`measure-${index}`} position={point}><sphereGeometry args={[0.18, 12, 12]} /><meshStandardMaterial color="#FF7518" emissive="#9a3412" /></mesh>
+      ))}
+      {measurePoints.length === 2 && <Line points={measurePoints} color="#FF7518" lineWidth={2} />}
+      {measurePoints.length === 2 && (
+        <Billboard position={[
+          (measurePoints[0][0] + measurePoints[1][0]) / 2,
+          (measurePoints[0][1] + measurePoints[1][1]) / 2 + 0.4,
+          (measurePoints[0][2] + measurePoints[1][2]) / 2,
+        ]}
+        >
+          <Html center distanceFactor={14} style={{ pointerEvents: 'none' }}>
+            <div className="rounded bg-[#FF7518] px-2 py-0.5 text-[10px] font-bold text-white shadow">
+              {formatLength(Math.hypot(
+                measurePoints[1][0] - measurePoints[0][0],
+                measurePoints[1][1] - measurePoints[0][1],
+                measurePoints[1][2] - measurePoints[0][2],
+              ), unit)}
+            </div>
+          </Html>
+        </Billboard>
+      )}
+    </group>
+  );
+}
+
+function SiteContext({ width, depth, floors, floorHeight, night, garden, parking }) {
+  const pad = Math.max(width, depth) * 0.55;
+  return (
+    <group>
+      <mesh position={[0, -0.12, 0]} receiveShadow rotation={[-Math.PI / 2, 0, 0]}><planeGeometry args={[width + pad * 2.4, depth + pad * 2.4]} /><meshStandardMaterial color="#7c8b5a" roughness={0.95} /></mesh>
+      <mesh position={[0, -0.05, depth / 2 + pad * 0.55]} receiveShadow><boxGeometry args={[width + pad * 1.6, 0.1, 5.5]} /><meshStandardMaterial color="#57534e" roughness={0.9} /></mesh>
+      {[-1.6, 0, 1.6].map((offset) => <mesh key={offset} position={[offset, 0.01, depth / 2 + pad * 0.55]}><boxGeometry args={[0.12, 0.02, 4.2]} /><meshStandardMaterial color="#f8fafc" /></mesh>)}
+      <mesh position={[0, -0.04, -depth / 2 - 2.2]} receiveShadow><boxGeometry args={[width + 4, 0.08, 2.4]} /><meshStandardMaterial color="#a8a29e" roughness={0.92} /></mesh>
+      {[[-width / 2 - 0.2, 0], [width / 2 + 0.2, 0], [0, -depth / 2 - 0.2], [0, depth / 2 + 0.2]].map(([x, z], index) => (
+        <mesh key={`boundary-${index}`} position={[x === 0 ? 0 : x + Math.sign(x) * 1.4, 0.85, z === 0 ? 0 : z + Math.sign(z) * 1.2]}>
+          <boxGeometry args={[x === 0 ? width + 4.5 : 0.25, 1.7, z === 0 ? depth + 4.5 : 0.25]} />
+          <meshStandardMaterial color="#d6d3d1" roughness={0.88} />
+        </mesh>
+      ))}
+      <mesh position={[0, 1.05, depth / 2 + 2.1]}><boxGeometry args={[3.2, 2.1, 0.18]} /><meshStandardMaterial color="#78716c" metalness={0.35} roughness={0.4} /></mesh>
+      {garden && <mesh position={[-width / 2 - 3.2, 0.02, 0]} receiveShadow><boxGeometry args={[3.4, 0.1, depth + 2]} /><meshStandardMaterial color="#4d7c0f" roughness={0.92} /></mesh>}
+      {parking && <ParkingArea width={width} depth={depth} />}
+      <Trees width={width} depth={depth} />
+      {night && Array.from({ length: 4 }, (_, index) => {
+        const angle = (index / 4) * Math.PI * 2;
+        const x = Math.cos(angle) * (width / 2 + 4);
+        const z = Math.sin(angle) * (depth / 2 + 4);
+        return <group key={`lamp-${index}`} position={[x, 0, z]}>
+          <mesh position={[0, 1.4, 0]}><cylinderGeometry args={[0.08, 0.1, 2.8]} /><meshStandardMaterial color="#44403c" metalness={0.5} /></mesh>
+          <pointLight position={[0, 2.9, 0]} intensity={5} distance={12} color="#fde68a" />
         </group>;
       })}
-      <mesh position={[0, config.floors * floorHeight + 0.12, 0]} castShadow><boxGeometry args={[width + 0.4, 0.24, depth + 0.4]} /><meshStandardMaterial color="#44403c" roughness={0.72} metalness={0.05} /></mesh>
-      {config.balconies && Array.from({ length: Math.max(config.floors - 1, 0) }, (_, index) => <mesh key={`balcony-${index}`} position={[0, (index + 1) * floorHeight + 0.16, depth / 2 + 1.2]}><boxGeometry args={[width * 0.46, 0.12, 2.2]} /><meshStandardMaterial color="#d6d3d1" roughness={0.8} /></mesh>)}
-      {config.roofUtility && <mesh position={[width * 0.25, config.floors * floorHeight + 0.7, 0]}><boxGeometry args={[width * 0.28, 1.1, depth * 0.22]} /><meshStandardMaterial color="#78716c" roughness={0.6} metalness={0.2} /></mesh>}
-      {config.lighting === 'night' && <pointLight position={[0, floor * floorHeight + 2, 0]} intensity={8} distance={Math.max(width, depth)} color="#fdba74" />}
-      <InteriorStairs x={stairX} y={floor * floorHeight} z={config.stairsPosition === 'rear' ? -depth * 0.25 : 0} />
-      <Trees width={width} depth={depth} />
+      <mesh position={[0, -0.55, 0]}><boxGeometry args={[width + 1.2, 0.9, depth + 1.2]} /><meshStandardMaterial color="#78716c" roughness={0.95} /></mesh>
+      <mesh visible={false} position={[0, floors * floorHeight * 0.5, 0]} />
     </group>
   );
 }
@@ -775,7 +1209,7 @@ function CameraRig({ view, span, targetY }) {
 }
 
 function ModelEditor({ config, selection, onMaterial, onRoomSize }) {
-  const materials = ['concrete', 'brick', 'stone', 'wood', 'plaster', 'stone-glass'];
+  const materials = ['concrete', 'brick', 'stone', 'wood', 'plaster', 'stone-glass', 'metal'];
   return (
     <div className="mt-3 rounded-xl border border-slate-200 p-3 text-xs">
       <p className="font-bold text-slate-800">3D model editor</p>

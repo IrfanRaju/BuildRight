@@ -5,14 +5,20 @@ import { hashPassword } from './routes/auth.js';
 import { DEFAULT_COMMERCE } from '../shared/commerce.js';
 import { DEFAULT_LABOR_RULES, LABOR_RATE_SOURCE, REPAIR_SERVICES } from '../shared/repairCatalog.js';
 import { MARKET_CATEGORIES, MARKET_PRODUCTS } from './data/marketplaceSeed.js';
+import { QUANTITY_RULES } from '../shared/rateBook.js';
 import {
+  Admin,
   Article,
+  BuildingTemplate,
   Contractor,
   LaborRate,
+  MarginRule,
   MarketplaceProduct,
   MaterialRate,
   ProductCategory,
   Project,
+  QuantityRule,
+  RegionalRate,
   RepairPricingRule,
   RepairService,
   ServiceProvider,
@@ -36,29 +42,201 @@ await Promise.all([
   LaborRate.deleteMany({ illustrative: true }),
   Contractor.deleteMany({ sample: true }),
   Project.deleteMany({ isSample: true }),
+  RegionalRate.deleteMany({}),
+  MarginRule.deleteMany({}),
+  QuantityRule.deleteMany({}),
+  BuildingTemplate.deleteMany({}),
   Article.deleteMany({ slug: { $in: ['plan-a-house-before-you-build', 'how-to-read-a-planning-estimate', 'choosing-a-construction-quality-level', 'what-a-concept-floor-plan-is'] } }),
 ]);
 
-await MaterialRate.insertMany(book.materials.map((item) => ({
-  ...item,
-  source: RATE_SOURCE,
-  illustrative: true,
-  effectiveFrom: new Date(RATE_UPDATED_AT),
-})));
+const materialExtras = {
+  cement: { brand: 'Sample Cement Co.', category: 'Binders', imageUrl: 'https://images.unsplash.com/photo-1518005020951-eccb494317cc?auto=format&fit=crop&w=600&q=60' },
+  steel: { brand: 'Sample Steel Mills', category: 'Structural', imageUrl: 'https://images.unsplash.com/photo-1504917595217-d4dc5ebe6122?auto=format&fit=crop&w=600&q=60' },
+  bricks: { brand: 'Sample Brick Works', category: 'Masonry', imageUrl: 'https://images.unsplash.com/photo-1558618666-fcd25c85cd64?auto=format&fit=crop&w=600&q=60' },
+  sand: { brand: 'Sample Aggregates', category: 'Aggregates', imageUrl: 'https://images.unsplash.com/photo-1589939705384-5185137a7f0f?auto=format&fit=crop&w=600&q=60' },
+  crush: { brand: 'Sample Aggregates', category: 'Aggregates', imageUrl: 'https://images.unsplash.com/photo-1589939705384-5185137a7f0f?auto=format&fit=crop&w=600&q=60' },
+  tiles: { brand: 'Sample Ceramics', category: 'Finishing', imageUrl: 'https://images.unsplash.com/photo-1615971677493-45c897a8d4d0?auto=format&fit=crop&w=600&q=60' },
+  paint: { brand: 'Sample Paints', category: 'Finishing', imageUrl: 'https://images.unsplash.com/photo-1562259949-e8e7689d7828?auto=format&fit=crop&w=600&q=60' },
+  electrical: { brand: 'Sample Electric', category: 'Electrical', imageUrl: 'https://images.unsplash.com/photo-1621905251189-08b45d6a269e?auto=format&fit=crop&w=600&q=60' },
+  plumbing: { brand: 'Sample Plumbing', category: 'Plumbing', imageUrl: 'https://images.unsplash.com/photo-1607472586893-edb57bdc0e39?auto=format&fit=crop&w=600&q=60' },
+};
+
+await MaterialRate.insertMany(book.materials.map((item) => {
+  const key = Object.keys(materialExtras).find((token) => item.code.includes(token) || item.name.toLowerCase().includes(token));
+  const extra = key ? materialExtras[key] : {};
+  return {
+    ...item,
+    brand: extra.brand || 'Sample Supplier',
+    description: `${item.name} for planning estimates (${item.scope}).`,
+    previousPrice: Math.round(item.rate * 0.96),
+    stockQuantity: 500 + (item.code.length * 37) % 2000,
+    availability: 'in_stock',
+    imageUrl: extra.imageUrl || '',
+    galleryImages: extra.imageUrl ? [extra.imageUrl] : [],
+    priceIncludesTransport: false,
+    source: RATE_SOURCE,
+    illustrative: true,
+    effectiveFrom: new Date(RATE_UPDATED_AT),
+    lastPriceUpdate: new Date(RATE_UPDATED_AT),
+  };
+}));
+
+const skillRates = [
+  { skill: 'mason', location: 'Islamabad', unit: 'daily', rate: 3500, ratePerSqFt: 45 },
+  { skill: 'laborer', location: 'Islamabad', unit: 'daily', rate: 2200, ratePerSqFt: 28 },
+  { skill: 'steel_fixer', location: 'Islamabad', unit: 'daily', rate: 4000, ratePerSqFt: 55 },
+  { skill: 'carpenter', location: 'Islamabad', unit: 'daily', rate: 3800, ratePerSqFt: 50 },
+  { skill: 'electrician', location: 'Lahore', unit: 'daily', rate: 4200, ratePerSqFt: 58 },
+  { skill: 'plumber', location: 'Karachi', unit: 'daily', rate: 4100, ratePerSqFt: 56 },
+  { skill: 'painter', location: 'Rawalpindi', unit: 'daily', rate: 3200, ratePerSqFt: 40 },
+  { skill: 'tile_worker', location: 'Peshawar', unit: 'daily', rate: 3600, ratePerSqFt: 48 },
+  { skill: 'mason', location: 'Gilgit', unit: 'daily', rate: 3800, ratePerSqFt: 52 },
+  { skill: 'laborer', location: 'Skardu', unit: 'daily', rate: 2500, ratePerSqFt: 32 },
+  { skill: 'mason', location: 'Hunza', unit: 'daily', rate: 3900, ratePerSqFt: 54 },
+];
+
 await LaborRate.insertMany([
-  ...book.labor.map((item) => ({ ...item, kind: 'labor', source: RATE_SOURCE, illustrative: true, effectiveFrom: new Date(RATE_UPDATED_AT) })),
-  ...book.equipment.map((item) => ({ ...item, kind: 'equipment', source: RATE_SOURCE, illustrative: true, effectiveFrom: new Date(RATE_UPDATED_AT) })),
+  ...book.labor.map((item) => ({
+    ...item,
+    kind: 'labor',
+    skill: 'general',
+    unit: 'per_sq_ft',
+    rate: item.ratePerSqFt,
+    source: RATE_SOURCE,
+    illustrative: true,
+    effectiveFrom: new Date(RATE_UPDATED_AT),
+    lastUpdated: new Date(RATE_UPDATED_AT),
+  })),
+  ...book.equipment.map((item) => ({
+    ...item,
+    kind: 'equipment',
+    skill: 'equipment',
+    unit: 'per_sq_ft',
+    rate: item.ratePerSqFt,
+    source: RATE_SOURCE,
+    illustrative: true,
+    effectiveFrom: new Date(RATE_UPDATED_AT),
+    lastUpdated: new Date(RATE_UPDATED_AT),
+  })),
+  ...skillRates.map((item) => ({
+    kind: 'labor',
+    skill: item.skill,
+    unit: item.unit,
+    scope: 'any',
+    quality: 'standard',
+    location: item.location,
+    rate: item.rate,
+    ratePerSqFt: item.ratePerSqFt,
+    source: RATE_SOURCE,
+    illustrative: true,
+    effectiveFrom: new Date(RATE_UPDATED_AT),
+    lastUpdated: new Date(RATE_UPDATED_AT),
+  })),
 ]);
+
+const regionalSeed = [
+  { city: 'Islamabad', region: 'Capital', multiplier: 1, transportAdjustment: 0 },
+  { city: 'Rawalpindi', region: 'Punjab', multiplier: 0.98, transportAdjustment: 0.01 },
+  { city: 'Lahore', region: 'Punjab', multiplier: 1.03, transportAdjustment: 0.015 },
+  { city: 'Karachi', region: 'Sindh', multiplier: 1.07, transportAdjustment: 0.02 },
+  { city: 'Peshawar', region: 'KPK', multiplier: 0.96, transportAdjustment: 0.02 },
+  { city: 'Gilgit', region: 'Gilgit-Baltistan', multiplier: 1.18, transportAdjustment: 0.05 },
+  { city: 'Skardu', region: 'Gilgit-Baltistan', multiplier: 1.22, transportAdjustment: 0.06 },
+  { city: 'Hunza', region: 'Gilgit-Baltistan', multiplier: 1.25, transportAdjustment: 0.07 },
+  { city: 'Gilgit-Baltistan', region: 'Gilgit-Baltistan', multiplier: 1.18, transportAdjustment: 0.05 },
+  { city: 'Multan', region: 'Punjab', multiplier: 0.94, transportAdjustment: 0.015 },
+  { city: 'Faisalabad', region: 'Punjab', multiplier: 0.95, transportAdjustment: 0.01 },
+];
+await RegionalRate.insertMany(regionalSeed.map((row) => ({ ...row, notes: 'Seeded illustrative regional multiplier', active: true })));
+
+await MarginRule.insertMany([
+  { name: 'Small residential', projectType: 'House', quality: '*', minCoveredArea: 0, maxCoveredArea: 1500, projectSize: 'small', marginPercent: 8, priority: 10, active: true },
+  { name: 'Medium residential', projectType: 'House', quality: '*', minCoveredArea: 1500, maxCoveredArea: 4500, projectSize: 'medium', marginPercent: 10, priority: 20, active: true },
+  { name: 'Large / multi-storey', projectType: '*', quality: '*', minCoveredArea: 4500, maxCoveredArea: null, projectSize: 'large', marginPercent: 12, priority: 30, active: true },
+  { name: 'Premium finishes uplift', projectType: '*', quality: 'premium', minCoveredArea: 0, maxCoveredArea: null, projectSize: 'any', marginPercent: 11, priority: 15, active: true },
+  { name: 'Luxury finishes uplift', projectType: '*', quality: 'luxury', minCoveredArea: 0, maxCoveredArea: null, projectSize: 'any', marginPercent: 14, priority: 5, active: true },
+]);
+
+await QuantityRule.insertMany(QUANTITY_RULES.map((rule) => ({
+  ...rule,
+  buildingType: '*',
+  constructionType: 'Framed RCC',
+  quality: '*',
+  floorFactor: rule.code === 'steel' ? 0.02 : 0,
+  notes: 'Seeded framed RCC planning coefficient',
+  active: true,
+})));
+await QuantityRule.insertMany([
+  { code: 'cement-grey', name: 'Cement (apartment)', category: 'Binders', unit: 'bag', scope: 'grey', buildingType: 'Apartment', constructionType: 'Framed RCC', quality: '*', perSqFt: 0.42, floorFactor: 0.015, active: true, notes: 'Slightly higher cement for multi-unit slabs' },
+  { code: 'blocks', name: 'Concrete blocks', category: 'Masonry', unit: 'nos', scope: 'grey', buildingType: 'House', constructionType: 'Block masonry', quality: '*', perSqFt: 1.2, floorFactor: 0, active: true, notes: 'Block-wall houses' },
+]);
+
+await BuildingTemplate.insertMany([
+  {
+    key: 'house-rcc',
+    name: 'Framed RCC house',
+    buildingType: 'House',
+    constructionType: 'Framed RCC',
+    description: 'Default residential framed structure template.',
+    quantityMultipliers: {},
+    laborIntensity: 1,
+    timelineFactor: 1,
+    phases: [
+      { key: 'foundation', label: 'Foundation', shareOfDuration: 0.18, canOverlapPrev: false, overlapRatio: 0 },
+      { key: 'structure', label: 'Structure', shareOfDuration: 0.32, canOverlapPrev: true, overlapRatio: 0.15 },
+      { key: 'roofing', label: 'Roofing', shareOfDuration: 0.12, canOverlapPrev: true, overlapRatio: 0.1 },
+      { key: 'electrical', label: 'Electrical', shareOfDuration: 0.12, canOverlapPrev: true, overlapRatio: 0.35 },
+      { key: 'plumbing', label: 'Plumbing', shareOfDuration: 0.1, canOverlapPrev: true, overlapRatio: 0.4 },
+      { key: 'finishing', label: 'Finishing', shareOfDuration: 0.16, canOverlapPrev: true, overlapRatio: 0.2 },
+    ],
+    active: true,
+  },
+  {
+    key: 'apartment-rcc',
+    name: 'Apartment building',
+    buildingType: 'Apartment',
+    constructionType: 'Framed RCC',
+    description: 'Multi-unit residential with higher labor intensity.',
+    quantityMultipliers: { steel: 1.08, 'cement-grey': 1.05 },
+    laborIntensity: 1.12,
+    timelineFactor: 1.2,
+    phases: [],
+    active: true,
+  },
+]);
+
 await SystemSetting.findOneAndUpdate(
   { key: 'rates' },
   { value: { source: RATE_SOURCE, locationFactors: LOCATION_FACTORS, qualityFactors: QUALITY_FACTORS, defaults: book.defaults } },
   { upsert: true },
 );
 
-const admin = await User.findOne({ email: adminEmail });
+const adminPasswordHash = hashPassword(adminPassword);
+let admin = await User.findOne({ email: adminEmail });
 if (!admin) {
-  await User.create({ name: 'BuildRight Admin', email: adminEmail, passwordHash: hashPassword(adminPassword), role: 'admin' });
+  admin = await User.create({
+    name: 'BuildRight Admin',
+    email: adminEmail,
+    passwordHash: adminPasswordHash,
+    role: 'admin',
+    accountStatus: 'active',
+  });
+} else {
+  admin.accountStatus = admin.accountStatus || 'active';
+  await admin.save();
 }
+await Admin.findOneAndUpdate(
+  { email: adminEmail },
+  {
+    name: 'BuildRight Admin',
+    email: adminEmail,
+    passwordHash: adminPasswordHash,
+    role: 'superadmin',
+    accountStatus: 'active',
+    userId: admin._id,
+  },
+  { upsert: true },
+);
 const supplier = await User.findOne({ email: supplierEmail }) || await User.create({ name: 'Margalla Materials', email: supplierEmail, passwordHash: hashPassword(supplierPassword), role: 'supplier' });
 const providerUser = await User.findOne({ email: providerEmail }) || await User.create({ name: 'Sample Painter', email: providerEmail, passwordHash: hashPassword(providerPassword), role: 'provider' });
 
