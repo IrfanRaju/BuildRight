@@ -43,25 +43,24 @@ export default function RatesTicker({ onOpenCatalog }) {
   const [status, setStatus] = useState('loading');
   const [error, setError] = useState('');
 
-  const load = () => {
+  const load = async () => {
     setStatus((prev) => (prev === 'ready' ? 'refreshing' : 'loading'));
-    api('/api/materials/ticker')
-      .then((result) => {
-        const next = Array.isArray(result.items) ? result.items : [];
-        setItems(next);
-        setNotice(result.notice || '');
-        setError('');
-        setStatus(next.length ? 'ready' : 'empty');
-      })
-      .catch((requestError) => {
-        setError(requestError.message || 'Rates unavailable');
-        setStatus('error');
-      });
+    try {
+      const result = await api('/api/materials/ticker');
+      const next = Array.isArray(result.items) ? result.items : [];
+      setItems(next);
+      setNotice(result.notice || '');
+      setError('');
+      setStatus(next.length ? 'ready' : 'empty');
+    } catch (requestError) {
+      setError(requestError.message || 'Rates unavailable');
+      setStatus('error');
+    }
   };
 
   useEffect(() => {
-    load();
-    const timer = window.setInterval(load, REFRESH_MS);
+    void load();
+    const timer = window.setInterval(() => { void load(); }, REFRESH_MS);
     return () => window.clearInterval(timer);
   }, []);
 
