@@ -35,11 +35,24 @@ export async function ensureMarketplaceCatalog() {
       }
 
       for (const product of MARKET_PRODUCTS) {
+        // Keep insert-only fields out of $set — Mongo rejects the same path in both
+        // $set and $setOnInsert when the upsert creates a new document (empty live DB).
+        const {
+          active: _active,
+          stock: _stock,
+          pricePkr,
+          roles,
+          unit,
+          quality,
+          brand,
+          ...insertFields
+        } = product;
+
         await MarketplaceProduct.updateOne(
           { sku: product.sku },
           {
             $setOnInsert: {
-              ...product,
+              ...insertFields,
               categoryId: categoryIds.get(product.categorySlug),
               supplierId: supplier._id,
               priceUpdatedAt: new Date('2026-10-01T00:00:00Z'),
@@ -47,11 +60,11 @@ export async function ensureMarketplaceCatalog() {
             $set: {
               active: true,
               stock: Math.max(product.stock || 0, 1),
-              pricePkr: product.pricePkr,
-              roles: product.roles,
-              unit: product.unit,
-              quality: product.quality,
-              brand: product.brand,
+              pricePkr,
+              roles,
+              unit,
+              quality,
+              brand,
             },
           },
           { upsert: true },
