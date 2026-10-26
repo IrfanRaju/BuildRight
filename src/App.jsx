@@ -74,6 +74,7 @@ import { useAuth } from './context/AuthContext';
 import { useCart } from './context/CartContext';
 import { api } from './lib/api';
 import { pageFromPath, pathFor } from './lib/routes';
+import WorkspaceShell from './components/WorkspaceShell';
 
 const DesignStudio = lazy(() => import('./DesignStudio'));
 const EstimatorWorkspace = lazy(() => import('./pages/EstimatorPage'));
@@ -259,10 +260,13 @@ function formatCurrency(value) {
 }
 
 function App() {
+  const { user, ready } = useAuth();
   const initial = pageFromPath(window.location.pathname);
   const [page, setPageState] = useState(initial.page);
   const [routeSlug, setRouteSlug] = useState(initial.slug);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const authPages = new Set(['login', 'register', 'forgot', 'reset']);
+  const inWorkspace = Boolean(user) && !authPages.has(page);
 
   const setPage = (next, slug = '') => {
     const path = pathFor(next, slug);
@@ -282,6 +286,12 @@ function App() {
     window.addEventListener('popstate', onPop);
     return () => window.removeEventListener('popstate', onPop);
   }, []);
+
+  useEffect(() => {
+    if (!ready || !user) return undefined;
+    if (page === 'home' || page === 'login' || page === 'register') setPage('dashboard');
+    return undefined;
+  }, [ready, user, page]);
 
   const renderPage = () => {
     switch (page) {
@@ -346,12 +356,20 @@ function App() {
     }
   };
 
+  const content = (
+    <Suspense fallback={<p className="px-6 py-10 text-sm text-slate-500">Loading page…</p>}>
+      {renderPage()}
+    </Suspense>
+  );
+
+  if (inWorkspace) {
+    return <WorkspaceShell page={page} setPage={setPage}>{content}</WorkspaceShell>;
+  }
+
   return (
     <div className="min-h-screen bg-[#F5F7FA] text-[#1F2937]">
       <Header page={page} setPage={setPage} mobileNavOpen={mobileNavOpen} setMobileNavOpen={setMobileNavOpen} />
-      <Suspense fallback={<p className="px-6 py-10 text-sm text-slate-500">Loading page…</p>}>
-        {renderPage()}
-      </Suspense>
+      {content}
     </div>
   );
 }

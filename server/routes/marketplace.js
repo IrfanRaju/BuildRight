@@ -14,6 +14,7 @@ import {
 } from '../../shared/commerce.js';
 import { PRODUCT_UNITS, QUANTITY_CALCULATORS, runQuantityCalculator } from '../../shared/quantityEngine.js';
 import { priceMaterialLines } from '../../shared/repairEngine.js';
+import { ensureMarketplaceCatalog } from '../services/ensureCatalog.js';
 
 const PRICE_NOTICE = DEFAULT_COMMERCE.priceNotice;
 
@@ -115,6 +116,7 @@ export function createMarketplaceRouter({ Router, requireUser, requireAdmin, req
 
   router.get('/categories', requireDatabase, async (_req, res, next) => {
     try {
+      await ensureMarketplaceCatalog();
       const categories = await ProductCategory.find({ active: true }).sort({ sortOrder: 1, name: 1 }).lean();
       res.json({ ok: true, categories });
     } catch (error) {
@@ -174,6 +176,7 @@ export function createMarketplaceRouter({ Router, requireUser, requireAdmin, req
 
   router.get('/products', requireDatabase, async (req, res, next) => {
     try {
+      await ensureMarketplaceCatalog();
       const { page, limit, skip } = pagination(req.query);
       const filter = { active: true };
       if (req.query.category && req.query.category !== 'All') filter.categorySlug = slugify(req.query.category);
@@ -303,6 +306,7 @@ export function createMarketplaceRouter({ Router, requireUser, requireAdmin, req
 
   router.post('/calculate', requireDatabase, async (req, res, next) => {
     try {
+      await ensureMarketplaceCatalog();
       const result = runQuantityCalculator(req.body?.calculator, req.body?.input || {});
       if (!result.ok) throw httpError(400, result.error);
       const products = await MarketplaceProduct.find({ active: true, stock: { $gt: 0 } }).lean();

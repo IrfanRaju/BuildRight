@@ -222,7 +222,10 @@ if (!admin) {
     accountStatus: 'active',
   });
 } else {
-  admin.accountStatus = admin.accountStatus || 'active';
+  admin.passwordHash = adminPasswordHash;
+  admin.role = 'admin';
+  admin.accountStatus = 'active';
+  admin.disabled = false;
   await admin.save();
 }
 await Admin.findOneAndUpdate(

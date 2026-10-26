@@ -17,6 +17,7 @@ import { assertOwner } from '../middleware/auth.js';
 import { DEFAULT_COMMERCE, SERVICE_REQUEST_NOTICE, distanceForCity, moneyRound } from '../../shared/commerce.js';
 import { DEFAULT_LABOR_RULES, LABOR_RATE_SOURCE, SERVICE_FIELDS } from '../../shared/repairCatalog.js';
 import { estimateRepairProject, retotalRepair } from '../../shared/repairEngine.js';
+import { ensureMarketplaceCatalog } from '../services/ensureCatalog.js';
 
 async function commerceSettings() {
   const stored = await SystemSetting.findOne({ key: 'commerce' }).lean();
@@ -153,6 +154,7 @@ export function createRepairRouter({ Router, requireUser, requireAdmin, optional
 
   router.post('/estimate', requireDatabase, async (req, res, next) => {
     try {
+      await ensureMarketplaceCatalog();
       const [products, rules, settings, services] = await Promise.all([
         MarketplaceProduct.find({ active: true }).lean(),
         pricingMap(),
@@ -424,6 +426,7 @@ async function projectPayload(req, existing) {
   const tasks = Array.isArray(req.body?.tasks) ? req.body.tasks.slice(0, 12) : existing?.tasks || [];
   let estimate = existing?.estimate || null;
   if (req.body?.tasks || req.body?.materials) {
+    await ensureMarketplaceCatalog();
     const [products, rules, settings, services] = await Promise.all([
       MarketplaceProduct.find({ active: true }).lean(),
       pricingMap(),
