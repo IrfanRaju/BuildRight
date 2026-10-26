@@ -39,3 +39,5 @@ coverage/
 # OS / misc
 *.local
 .DS_Store
+.vercel
+.env*
