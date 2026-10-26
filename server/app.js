@@ -39,7 +39,13 @@ export function createApp(options = {}) {
   // Ensure Mongo is ready on each serverless invocation (cached between warm starts).
   app.use(async (_req, _res, next) => {
     try {
-      await connectDatabase(env.mongoUri);
+      const connected = await connectDatabase(env.mongoUri);
+      if (!connected && env.mongoUri) {
+        return next(Object.assign(
+          new Error('Database storage is unavailable. Start MongoDB and check MONGODB_URI.'),
+          { status: 503 },
+        ));
+      }
       next();
     } catch (error) {
       next(error);

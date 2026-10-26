@@ -9,12 +9,19 @@ export async function connectDatabase(uri) {
     return false;
   }
 
+  // readyState: 0=disconnected 1=connected 2=connecting 3=disconnecting
   if (mongoose.connection.readyState === 1) return true;
+
+  // Stale resolved promise after a drop would skip reconnect on Vercel warm instances.
+  if (mongoose.connection.readyState === 0 || mongoose.connection.readyState === 3) {
+    globalForMongo.__buildrightMongoPromise = null;
+  }
 
   if (!globalForMongo.__buildrightMongoPromise) {
     globalForMongo.__buildrightMongoPromise = mongoose.connect(uri, {
       bufferCommands: false,
-      maxPoolSize: process.env.VERCEL ? 5 : 10,
+      maxPoolSize: process.env.VERCEL ? 1 : 10,
+      serverSelectionTimeoutMS: 10000,
     }).then(() => {
       console.info('BuildRight API connected to MongoDB.');
       return true;
@@ -27,7 +34,7 @@ export async function connectDatabase(uri) {
 
   try {
     await globalForMongo.__buildrightMongoPromise;
-    return true;
+    return mongoose.connection.readyState === 1;
   } catch {
     return false;
   }
