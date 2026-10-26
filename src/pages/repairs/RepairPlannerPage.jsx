@@ -9,10 +9,24 @@ import { Field, Notice, PageHeader, SearchableSelect, buttonClass, ghostClass } 
 const BUILDINGS = ['House', 'Apartment', 'Shop', 'Office', 'Plaza', 'Other'];
 const CITIES = ['Islamabad', 'Rawalpindi', 'Lahore', 'Karachi', 'Peshawar', 'Multan', 'Faisalabad', 'Gilgit-Baltistan'];
 
+function rankServiceMatch(service, query) {
+  const q = query.trim().toLowerCase();
+  if (!q) return 0;
+  const haystack = [service.title, service.summary, service.slug, ...(service.keywords || []), ...(service.tasks || [])].join(' ').toLowerCase();
+  if (service.title?.toLowerCase() === q || service.slug === q) return 100;
+  if (service.title?.toLowerCase().includes(q)) return 80;
+  if ((service.keywords || []).some((keyword) => keyword.toLowerCase().includes(q) || q.includes(keyword.toLowerCase()))) return 60;
+  if (haystack.includes(q)) return 40;
+  const tokens = q.split(/\s+/).filter(Boolean);
+  const hits = tokens.filter((token) => haystack.includes(token)).length;
+  return hits ? hits * 10 : 0;
+}
+
 export default function RepairPlannerPage({ setPage }) {
   const { user } = useAuth();
   const { add } = useCart();
   const [services, setServices] = useState([]);
+  const [serviceBySlug, setServiceBySlug] = useState({});
   const [serviceQuery, setServiceQuery] = useState('');
   const [serviceTotal, setServiceTotal] = useState(0);
   const [selected, setSelected] = useState([]);
@@ -29,13 +43,46 @@ export default function RepairPlannerPage({ setPage }) {
       const params = new URLSearchParams({ limit: '24' });
       if (serviceQuery.trim()) params.set('q', serviceQuery.trim());
       api(`/api/repairs/services?${params}`)
-        .then((result) => { setServices(result.services || []); setServiceTotal(result.total || 0); setError(''); })
+        .then((result) => {
+          const next = result.services || [];
+          setServices(next);
+          setServiceTotal(result.total || 0);
+          setServiceBySlug((current) => {
+            const merged = { ...current };
+            for (const service of next) merged[service.slug] = service;
+            return merged;
+          });
+          setError('');
+        })
         .catch((requestError) => setError(requestError.message));
     }, 250);
     return () => clearTimeout(timer);
   }, [serviceQuery]);
 
   const toggle = (slug) => setSelected((current) => current.includes(slug) ? current.filter((item) => item !== slug) : [...current, slug]);
+
+  const resolveSelection = () => {
+    if (selected.length) return selected;
+    const query = serviceQuery.trim();
+    if (!query || !services.length) return [];
+    const ranked = [...services]
+      .map((service) => ({ service, score: rankServiceMatch(service, query) }))
+      .filter((entry) => entry.score > 0)
+      .sort((a, b) => b.score - a.score);
+    if (ranked.length) return [ranked[0].service.slug];
+    return [services[0].slug];
+  };
+
+  const goToProjectStep = () => {
+    const nextSelected = resolveSelection();
+    if (!nextSelected.length) {
+      setError('Select a service card below, or type a service such as painting, then press Continue.');
+      return;
+    }
+    setSelected(nextSelected);
+    setError('');
+    setStep(2);
+  };
 
   const taskPayload = () => selected.map((slug) => ({
     serviceSlug: slug,
@@ -125,8 +172,23 @@ export default function RepairPlannerPage({ setPage }) {
       {step === 1 && (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           <div className="sm:col-span-2 lg:col-span-3">
-            <input className="input" value={serviceQuery} onChange={(event) => setServiceQuery(event.target.value)} placeholder="Search repair services, such as painting, wall cracks, or roof leakage" aria-label="Search repair services" />
-            <p className="mt-2 text-xs text-slate-500">{serviceTotal} matching service{serviceTotal === 1 ? '' : 's'} from the database</p>
+            <input
+              className="input"
+              value={serviceQuery}
+              onChange={(event) => { setServiceQuery(event.target.value); if (error) setError(''); }}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') {
+                  event.preventDefault();
+                  goToProjectStep();
+                }
+              }}
+              placeholder="Type painting, renovation, wall cracks… then Continue — or tap a service card"
+              aria-label="Search repair services"
+            />
+            <p className="mt-2 text-xs text-slate-500">
+              {serviceTotal} matching service{serviceTotal === 1 ? '' : 's'}. Tap a card to select
+              {selected.length ? ` · ${selected.length} selected` : ' · or press Continue / Enter to use the best match for your search'}.
+            </p>
           </div>
           {services.map((service) => (
             <motion.button key={service.slug} type="button" whileHover={{ y: -3 }} onClick={() => toggle(service.slug)} className={`overflow-hidden rounded-3xl border text-left ${selected.includes(service.slug) ? 'border-[#FF7518] bg-orange-50' : 'border-slate-200 bg-white'}`}>
@@ -138,7 +200,9 @@ export default function RepairPlannerPage({ setPage }) {
               </div>
             </motion.button>
           ))}
-          <div className="sm:col-span-2 lg:col-span-3"><button type="button" className={buttonClass} disabled={!selected.length} onClick={() => setStep(2)}>Continue</button></div>
+          <div className="sm:col-span-2 lg:col-span-3">
+            <button type="button" className={buttonClass} disabled={!selected.length && !services.length} onClick={goToProjectStep}>Continue</button>
+          </div>
         </div>
       )}
 
@@ -154,10 +218,10 @@ export default function RepairPlannerPage({ setPage }) {
           <Field label="Photographs of the problem"><input className="input" type="file" accept="image/*" multiple onChange={onPhotos} /></Field>
           {photos.length > 0 && <div className="flex gap-2 md:col-span-2">{photos.map((photo) => <img key={photo.caption} src={photo.dataUrl} alt="" className="h-20 w-20 rounded-xl object-cover" />)}</div>}
           {selected.map((slug) => {
-            const service = services.find((item) => item.slug === slug);
+            const service = serviceBySlug[slug] || services.find((item) => item.slug === slug);
             return (
               <fieldset key={slug} className="rounded-2xl bg-slate-50 p-4 md:col-span-2">
-                <legend className="px-1 font-bold">{service?.title}</legend>
+                <legend className="px-1 font-bold">{service?.title || slug}</legend>
                 <div className="mt-3 grid gap-3 md:grid-cols-3">
                   {(service?.fields || []).map((field) => (
                     <label key={field.key} className="text-sm font-semibold">{field.label}{field.unit ? ` (${field.unit})` : ''}

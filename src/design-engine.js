@@ -153,12 +153,16 @@ export function createDesignFromPrompt(prompt, previous = {}) {
     questions.push('What are the plot width and depth, or the plot size in marla or kanal?');
   }
 
+  config.layoutArchetype = previous.layoutArchetype || pickLayoutArchetype(text, config);
   config.width = clamp(Number(config.width) || 18, 6, 120);
   config.depth = clamp(Number(config.depth) || 14, 6, 120);
   config.floors = clamp(Number(config.floors) || 1, 1, 20);
   config.floorLayouts = Array.from({ length: config.floors }, (_, index) => makeRooms(config, index));
   config.rooms = config.floorLayouts[0];
   config.assumptions = assumptions;
+  if (config.projectType === 'House' || config.projectType === 'Apartment') {
+    assumptions.push(`Layout archetype: ${config.layoutArchetype.replace(/-/g, ' ')} (varied from the prompt, not a flat equal grid).`);
+  }
   config.questions = questions;
   if (config.projectType === 'Bridge') assumptions.push('Bridge engineering is not generated. This is a linear deck concept, not a structural bridge design.');
   if (config.projectType === 'Landscape') assumptions.push('This is a site-zone concept, not a planting or grading plan.');
@@ -173,7 +177,57 @@ function titleFromPrompt(prompt) {
   return normalized ? `${normalized.slice(0, 36)}${normalized.length > 36 ? '…' : ''}` : 'Untitled Design';
 }
 
-function layoutNames(config, names) {
+/** Stable 0..n-1 pick from a string — same brief → same archetype, different briefs → different plans. */
+function hashPick(seed, modulo) {
+  let hash = 2166136261;
+  for (let index = 0; index < seed.length; index += 1) {
+    hash ^= seed.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return Math.abs(hash) % Math.max(1, modulo);
+}
+
+const HOUSE_ARCHETYPES = [
+  'central-hall',
+  'open-plan',
+  'courtyard',
+  'l-shape',
+  'front-public',
+  'split-wing',
+  'linear-spine',
+  'compact-core',
+];
+
+function pickLayoutArchetype(text, config) {
+  if (/\bcourtyard\b|\batrium\b/.test(text)) return 'courtyard';
+  if (/\bl[-\s]?shape\b|\bl shaped\b/.test(text)) return 'l-shape';
+  if (/\bopen[\s-]?plan\b/.test(text)) return 'open-plan';
+  if (/\bcentral (?:hall|corridor)\b|\btraditional\b/.test(text)) return 'central-hall';
+  if (/\bsplit\b|\bwings?\b/.test(text)) return 'split-wing';
+  if (config.style === 'Minimalist') return 'open-plan';
+  if (config.style === 'Traditional') return 'central-hall';
+  if (config.style === 'Contemporary') return 'front-public';
+  const seed = `${config.projectType}|${config.style}|${config.bedrooms || 0}|${config.floors}|${text.slice(0, 80)}`;
+  return HOUSE_ARCHETYPES[hashPick(seed, HOUSE_ARCHETYPES.length)];
+}
+
+function roomWeight(name) {
+  const lower = name.toLowerCase();
+  if (/living|lobby|dining|hall|storage hall/.test(lower)) return 2.4;
+  if (/bedroom|guest|ward|classroom|shop|office|kitchen/.test(lower)) return 1.6;
+  if (/parking|balcony|loading/.test(lower)) return 1.3;
+  if (/bath|wash|stair|lift|elev|corridor|entry|service|emergency/.test(lower)) return 0.7;
+  return 1;
+}
+
+function layoutNames(config, names, archetype = 'grid') {
+  if (['House', 'Apartment'].includes(config.projectType) && archetype !== 'grid') {
+    return layoutByArchetype(config, names, archetype);
+  }
+  return layoutWeightedGrid(config, names);
+}
+
+function layoutWeightedGrid(config, names) {
   let columns = 1;
   let bestScore = 0;
   for (let candidate = 1; candidate <= names.length; candidate += 1) {
@@ -185,24 +239,232 @@ function layoutNames(config, names) {
     }
   }
   const rows = Math.ceil(names.length / columns);
-  const cellWidth = config.width / columns;
-  const cellDepth = config.depth / rows;
-  return names.map((name, index) => {
-    const col = index % columns;
-    const row = Math.floor(index / columns);
-    const onPerimeter = col === 0 || col === columns - 1 || row === 0 || row === rows - 1;
-    return {
-      id: `${index + 1}`,
-      name,
-      x: col * cellWidth,
-      y: row * cellDepth,
-      width: cellWidth,
-      depth: cellDepth,
-      door: name !== 'Balcony',
-      // Outside-facing rooms get windows so elevations and the 3D facade stay coherent.
-      window: onPerimeter || name === 'Balcony',
-    };
+  const grid = Array.from({ length: rows }, () => Array.from({ length: columns }, () => null));
+  names.forEach((name, index) => {
+    grid[Math.floor(index / columns)][index % columns] = name;
   });
+  const colWeights = Array.from({ length: columns }, (_, col) => {
+    let sum = 0;
+    let count = 0;
+    for (let row = 0; row < rows; row += 1) {
+      if (grid[row][col]) {
+        sum += roomWeight(grid[row][col]);
+        count += 1;
+      }
+    }
+    return count ? sum / count : 1;
+  });
+  const rowWeights = Array.from({ length: rows }, (_, row) => {
+    let sum = 0;
+    let count = 0;
+    for (let col = 0; col < columns; col += 1) {
+      if (grid[row][col]) {
+        sum += roomWeight(grid[row][col]);
+        count += 1;
+      }
+    }
+    return count ? sum / count : 1;
+  });
+  const colTotal = colWeights.reduce((a, b) => a + b, 0) || 1;
+  const rowTotal = rowWeights.reduce((a, b) => a + b, 0) || 1;
+  const colWidths = colWeights.map((weight) => (weight / colTotal) * config.width);
+  const rowDepths = rowWeights.map((weight) => (weight / rowTotal) * config.depth);
+  const rooms = [];
+  let id = 1;
+  let y = 0;
+  for (let row = 0; row < rows; row += 1) {
+    let x = 0;
+    for (let col = 0; col < columns; col += 1) {
+      const name = grid[row][col];
+      if (name) {
+        const onPerimeter = col === 0 || col === columns - 1 || row === 0 || row === rows - 1;
+        rooms.push({
+          id: `${id}`,
+          name,
+          x,
+          y,
+          width: colWidths[col],
+          depth: rowDepths[row],
+          door: name !== 'Balcony',
+          window: onPerimeter || name === 'Balcony',
+        });
+        id += 1;
+      }
+      x += colWidths[col];
+    }
+    y += rowDepths[row];
+  }
+  return rooms;
+}
+
+function sortRoomsForArchetype(names, archetype) {
+  const score = (name) => {
+    const lower = name.toLowerCase();
+    if (archetype === 'front-public' || archetype === 'open-plan') {
+      if (/living|dining|lobby|entry/.test(lower)) return 0;
+      if (/kitchen/.test(lower)) return 1;
+      if (/bedroom/.test(lower)) return 3;
+      if (/bath/.test(lower)) return 4;
+      return 2;
+    }
+    if (archetype === 'central-hall' || archetype === 'linear-spine') {
+      if (/stair|corridor|hall|entry/.test(lower)) return 0;
+      if (/living|dining|kitchen/.test(lower)) return 1;
+      if (/bedroom/.test(lower)) return 2;
+      return 3;
+    }
+    if (/living|dining|kitchen/.test(lower)) return 0;
+    if (/bedroom/.test(lower)) return 1;
+    return 2;
+  };
+  return [...names].sort((a, b) => score(a) - score(b) || a.localeCompare(b));
+}
+
+function roomBox(id, name, x, y, width, depth, footprint) {
+  const onPerimeter = x <= 0.05 || y <= 0.05 || x + width >= footprint.width - 0.05 || y + depth >= footprint.depth - 0.05;
+  return {
+    id: String(id),
+    name,
+    x: Math.round(x * 100) / 100,
+    y: Math.round(y * 100) / 100,
+    width: Math.round(width * 100) / 100,
+    depth: Math.round(depth * 100) / 100,
+    door: name !== 'Balcony',
+    window: onPerimeter || /balcony|living|bedroom/i.test(name),
+  };
+}
+
+function packStrip(names, x, y, width, depth, startId, footprint, axis = 'x') {
+  const weights = names.map(roomWeight);
+  const total = weights.reduce((a, b) => a + b, 0) || 1;
+  const rooms = [];
+  let cursor = 0;
+  let id = startId;
+  names.forEach((name, index) => {
+    const share = weights[index] / total;
+    if (axis === 'x') {
+      const w = width * share;
+      rooms.push(roomBox(id, name, x + cursor, y, w, depth, footprint));
+      cursor += w;
+    } else {
+      const d = depth * share;
+      rooms.push(roomBox(id, name, x, y + cursor, width, d, footprint));
+      cursor += d;
+    }
+    id += 1;
+  });
+  return { rooms, nextId: id };
+}
+
+function layoutByArchetype(config, names, archetype) {
+  const ordered = sortRoomsForArchetype(names, archetype);
+  const footprint = { width: config.width, depth: config.depth };
+  const publicRooms = ordered.filter((name) => /living|dining|kitchen|lobby|entry|hall/i.test(name));
+  const privateRooms = ordered.filter((name) => /bedroom|bath|guest/i.test(name));
+  const serviceRooms = ordered.filter((name) => !publicRooms.includes(name) && !privateRooms.includes(name));
+  const W = config.width;
+  const D = config.depth;
+
+  if (archetype === 'courtyard' && ordered.length >= 4) {
+    const courtW = W * 0.28;
+    const courtD = D * 0.28;
+    const courtX = (W - courtW) / 2;
+    const courtY = (D - courtD) / 2;
+    const band = ordered.filter((name) => !/stair|corridor/i.test(name));
+    const top = band.slice(0, Math.ceil(band.length / 4));
+    const right = band.slice(top.length, top.length + Math.ceil(band.length / 4));
+    const bottom = band.slice(top.length + right.length, top.length + right.length + Math.ceil(band.length / 4));
+    const left = band.slice(top.length + right.length + bottom.length);
+    const services = ordered.filter((name) => /stair|corridor/i.test(name));
+    let id = 1;
+    const rooms = [roomBox(id, 'Courtyard', courtX, courtY, courtW, courtD, footprint)];
+    id += 1;
+    let pack = packStrip(top.length ? top : ['Living Room'], 0, 0, W, courtY, id, footprint, 'x');
+    rooms.push(...pack.rooms);
+    id = pack.nextId;
+    pack = packStrip(right.length ? right : privateRooms.slice(0, 1), courtX + courtW, courtY, W - courtX - courtW, courtD, id, footprint, 'y');
+    rooms.push(...pack.rooms);
+    id = pack.nextId;
+    pack = packStrip(bottom.length ? bottom : publicRooms.slice(0, 1), 0, courtY + courtD, W, D - courtY - courtD, id, footprint, 'x');
+    rooms.push(...pack.rooms);
+    id = pack.nextId;
+    pack = packStrip([...left, ...services].length ? [...left, ...services] : serviceRooms, 0, courtY, courtX, courtD, id, footprint, 'y');
+    rooms.push(...pack.rooms);
+    return rooms;
+  }
+
+  if (archetype === 'l-shape' && ordered.length >= 3) {
+    const wingW = W * 0.55;
+    const wingD = D * 0.45;
+    const main = ordered.slice(0, Math.ceil(ordered.length * 0.55));
+    const wing = ordered.slice(main.length);
+    let pack = packStrip(main, 0, 0, W, wingD, 1, footprint, 'x');
+    const rooms = [...pack.rooms];
+    pack = packStrip(wing.length ? wing : ['Bedroom 1'], 0, wingD, wingW, D - wingD, pack.nextId, footprint, 'y');
+    rooms.push(...pack.rooms);
+    return rooms;
+  }
+
+  if (archetype === 'open-plan') {
+    const living = ordered.find((name) => /living/i.test(name)) || ordered[0];
+    const rest = ordered.filter((name) => name !== living);
+    const livingDepth = D * 0.42;
+    const rooms = [roomBox(1, living, 0, 0, W, livingDepth, footprint)];
+    const pack = packStrip(rest, 0, livingDepth, W, D - livingDepth, 2, footprint, 'x');
+    return [...rooms, ...pack.rooms];
+  }
+
+  if (archetype === 'central-hall' || archetype === 'linear-spine' || archetype === 'compact-core') {
+    const hallName = ordered.find((name) => /stair|corridor|hall|entry/i.test(name)) || 'Hall';
+    const rest = ordered.filter((name) => name !== hallName);
+    const hallW = Math.min(W * 0.22, archetype === 'compact-core' ? W * 0.18 : W * 0.28);
+    const hallX = (W - hallW) / 2;
+    const left = rest.slice(0, Math.ceil(rest.length / 2));
+    const right = rest.slice(left.length);
+    const rooms = [roomBox(1, hallName, hallX, 0, hallW, D, footprint)];
+    let pack = packStrip(left.length ? left : ['Living Room'], 0, 0, hallX, D, 2, footprint, 'y');
+    rooms.push(...pack.rooms);
+    pack = packStrip(right.length ? right : ['Bedroom 1'], hallX + hallW, 0, W - hallX - hallW, D, pack.nextId, footprint, 'y');
+    rooms.push(...pack.rooms);
+    return rooms;
+  }
+
+  if (archetype === 'split-wing') {
+    const mid = Math.ceil(ordered.length / 2);
+    const left = ordered.slice(0, mid);
+    const right = ordered.slice(mid);
+    let pack = packStrip(left, 0, 0, W * 0.48, D, 1, footprint, 'y');
+    const rooms = [...pack.rooms];
+    rooms.push(roomBox(pack.nextId, 'Circulation', W * 0.48, 0, W * 0.04, D, footprint));
+    pack = packStrip(right.length ? right : ['Bedroom 1'], W * 0.52, 0, W * 0.48, D, pack.nextId + 1, footprint, 'y');
+    rooms.push(...pack.rooms);
+    return rooms;
+  }
+
+  // front-public: public strip at front, private at rear
+  const front = publicRooms.length ? publicRooms : ordered.slice(0, Math.ceil(ordered.length / 2));
+  const rear = [...privateRooms, ...serviceRooms].filter((name) => !front.includes(name));
+  const rearList = rear.length ? rear : ordered.slice(front.length);
+  const frontDepth = D * 0.4;
+  let pack = packStrip(front, 0, 0, W, frontDepth, 1, footprint, 'x');
+  const rooms = [...pack.rooms];
+  pack = packStrip(rearList.length ? rearList : ['Bedroom 1'], 0, frontDepth, W, D - frontDepth, pack.nextId, footprint, 'x');
+  rooms.push(...pack.rooms);
+  return rooms;
+}
+
+function houseRoomNames(config, floorIndex = 0) {
+  const bedCount = config.bedrooms || 2;
+  const bathCount = config.bathrooms || 1;
+  const names = floorIndex === 0
+    ? ['Living Room', 'Kitchen', 'Dining Room']
+    : ['Family Lounge', 'Study'];
+  for (let index = 1; index <= bedCount; index += 1) names.push(`Bedroom ${index}`);
+  for (let index = 1; index <= bathCount; index += 1) names.push(`Bathroom ${index}`);
+  if (config.floors > 1) names.push('Staircase');
+  if (config.balconies) names.push('Balcony');
+  if (config.parking && floorIndex === 0) names.push('Parking');
+  return names;
 }
 
 function makeRooms(config, floorIndex = 0) {
@@ -219,16 +481,8 @@ function makeRooms(config, floorIndex = 0) {
     }));
   }
 
-  if (config.projectType === 'House' && (config.bedrooms || config.bathrooms || config.balconies)) {
-    const names = ['Living Room', 'Kitchen', 'Dining Room'];
-    const bedCount = config.bedrooms || 2;
-    const bathCount = config.bathrooms || 1;
-    for (let index = 1; index <= bedCount; index += 1) names.push(`Bedroom ${index}`);
-    for (let index = 1; index <= bathCount; index += 1) names.push(`Bathroom ${index}`);
-    if (config.floors > 1) names.push('Staircase');
-    if (config.balconies) names.push('Balcony');
-    if (config.parking) names.push('Parking');
-    return layoutNames(config, names);
+  if (config.projectType === 'House' || config.projectType === 'Apartment') {
+    return layoutNames(config, houseRoomNames(config, floorIndex), config.layoutArchetype || 'front-public');
   }
 
   if (config.projectType === 'Warehouse' || config.projectType === 'Factory') {

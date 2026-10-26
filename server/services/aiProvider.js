@@ -2,6 +2,10 @@ import { createDesignFromPrompt, validateDesign } from '../../src/design-engine.
 
 const ALLOWED_TYPES = new Set(['House', 'Plaza', 'Shop', 'University', 'Office', 'Apartment', 'Road', 'Tunnel', 'Commercial Building', 'School', 'Hospital', 'Parking']);
 
+const ALLOWED_ARCHETYPES = new Set([
+  'central-hall', 'open-plan', 'courtyard', 'l-shape', 'front-public', 'split-wing', 'linear-spine', 'compact-core',
+]);
+
 function sanitizeAiSpec(value) {
   if (!value || typeof value !== 'object') throw new Error('AI specification was not an object.');
   const spec = {};
@@ -13,6 +17,7 @@ function sanitizeAiSpec(value) {
   if (['Modern', 'Contemporary', 'Traditional', 'Minimalist'].includes(value.style)) spec.style = value.style;
   if (typeof value.location === 'string') spec.location = value.location.slice(0, 80);
   if (typeof value.parking === 'boolean') spec.parking = value.parking;
+  if (ALLOWED_ARCHETYPES.has(value.layoutArchetype)) spec.layoutArchetype = value.layoutArchetype;
   return spec;
 }
 
@@ -47,7 +52,7 @@ export async function interpretDesign(prompt, previous, env) {
         temperature: 0,
         response_format: { type: 'json_object' },
         messages: [
-          { role: 'system', content: 'Extract a construction design specification as JSON with projectType, width, depth, floors, unit, style, location, bedrooms, bathrooms, and parking. Do not invent dimensions that the user did not state.' },
+          { role: 'system', content: 'Extract a construction design specification as JSON with projectType, width, depth, floors, unit, style, location, bedrooms, bathrooms, parking, and layoutArchetype. layoutArchetype must be one of: central-hall, open-plan, courtyard, l-shape, front-public, split-wing, linear-spine, compact-core. Prefer a distinctive archetype that fits the brief (courtyard for inward plans, l-shape for corner plots, open-plan for modern, central-hall for traditional). Do not invent dimensions that the user did not state.' },
           { role: 'user', content: prompt },
         ],
       }),
