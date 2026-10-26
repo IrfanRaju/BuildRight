@@ -1,4 +1,4 @@
-import { Cart, MarketplaceProduct, Order, ProductCategory, SystemSetting } from '../models/index.js';
+import { Cart, MarketplaceProduct, Order, ProductCategory, RegionalRate, SystemSetting } from '../models/index.js';
 import { httpError, pagination, slugify } from '../lib/http.js';
 import { containsRegex } from '../lib/search.js';
 import { recordAudit } from '../services/database.js';
@@ -12,24 +12,60 @@ import {
   orderTotals,
   restoresStock,
 } from '../../shared/commerce.js';
+import { LOCATION_FACTORS } from '../../shared/rateBook.js';
 import { PRODUCT_UNITS, QUANTITY_CALCULATORS, runQuantityCalculator } from '../../shared/quantityEngine.js';
 import { priceMaterialLines } from '../../shared/repairEngine.js';
 import { ensureMarketplaceCatalog } from '../services/ensureCatalog.js';
 
 const PRICE_NOTICE = DEFAULT_COMMERCE.priceNotice;
+const CITY_STORAGE_CITIES = Object.keys(DEFAULT_COMMERCE.cityDistancesKm || {});
 
 async function commerceSettings() {
   const stored = await SystemSetting.findOne({ key: 'commerce' }).lean();
   return { ...DEFAULT_COMMERCE, ...(stored?.value || {}) };
 }
 
-function presentProduct(product) {
+async function resolveCityPricing(requestedCity) {
+  const regional = await RegionalRate.find({ active: true }).select('city multiplier').sort({ city: 1 }).lean();
+  const multipliers = { ...LOCATION_FACTORS };
+  for (const row of regional) {
+    if (row?.city && Number.isFinite(Number(row.multiplier))) multipliers[row.city] = Number(row.multiplier);
+  }
+  const cities = [...new Set([...Object.keys(multipliers), ...CITY_STORAGE_CITIES])].sort((a, b) => a.localeCompare(b));
+  const city = String(requestedCity || '').trim();
+  if (!city) {
+    return { city: '', multiplier: 1, cities, pricingLabel: 'Catalog base price' };
+  }
+  const match = cities.find((name) => name.toLowerCase() === city.toLowerCase()) || '';
+  if (!match) {
+    return { city: '', multiplier: 1, cities, pricingLabel: 'Catalog base price' };
+  }
+  const multiplier = Number(multipliers[match]);
+  return {
+    city: match,
+    multiplier: Number.isFinite(multiplier) && multiplier > 0 ? multiplier : 1,
+    cities,
+    pricingLabel: `${match} price`,
+  };
+}
+
+function presentProduct(product, pricing = null) {
   const stock = Number(product.stock) || 0;
+  const basePricePkr = Number(product.pricePkr) || 0;
+  const multiplier = pricing?.city ? Number(pricing.multiplier) || 1 : 1;
+  const cityPrice = Math.round(basePricePkr * multiplier);
   return {
     ...product,
+    basePricePkr,
+    pricePkr: pricing?.city ? cityPrice : basePricePkr,
+    pricingCity: pricing?.city || '',
+    cityMultiplier: pricing?.city ? multiplier : 1,
+    pricingLabel: pricing?.city ? pricing.pricingLabel : 'Catalog base price',
     inStock: stock > 0,
     availability: stock > 0 ? `${stock} ${product.unit} in stock` : 'Out of stock',
-    priceNotice: PRICE_NOTICE,
+    priceNotice: pricing?.city
+      ? `${PRICE_NOTICE} Shown for ${pricing.city} using regional multiplier ×${multiplier}. Cart and checkout use the catalog base price.`
+      : PRICE_NOTICE,
   };
 }
 
@@ -177,11 +213,13 @@ export function createMarketplaceRouter({ Router, requireUser, requireAdmin, req
   router.get('/products', requireDatabase, async (req, res, next) => {
     try {
       await ensureMarketplaceCatalog();
+      const pricing = await resolveCityPricing(req.query.city);
       const { page, limit, skip } = pagination(req.query);
       const filter = { active: true };
       if (req.query.category && req.query.category !== 'All') filter.categorySlug = slugify(req.query.category);
       if (req.query.brand) filter.brand = String(req.query.brand).slice(0, 80);
       if (req.query.quality) filter.quality = String(req.query.quality);
+      if (req.query.inStock === '1' || req.query.inStock === 'true') filter.stock = { $gt: 0 };
       const regex = containsRegex(req.query.q);
       if (regex) {
         const matchedCategories = await ProductCategory.find({ $or: [{ name: regex }, { slug: regex }] }).select('slug').lean();
@@ -206,8 +244,9 @@ export function createMarketplaceRouter({ Router, requireUser, requireAdmin, req
       const maxPrice = Number(req.query.maxPrice);
       if (Number.isFinite(minPrice) || Number.isFinite(maxPrice)) {
         filter.pricePkr = {};
-        if (Number.isFinite(minPrice)) filter.pricePkr.$gte = minPrice;
-        if (Number.isFinite(maxPrice)) filter.pricePkr.$lte = maxPrice;
+        const factor = pricing.city ? pricing.multiplier : 1;
+        if (Number.isFinite(minPrice)) filter.pricePkr.$gte = Math.floor(minPrice / factor);
+        if (Number.isFinite(maxPrice)) filter.pricePkr.$lte = Math.ceil(maxPrice / factor);
       }
       const sort = req.query.sort === 'price-asc' ? { pricePkr: 1 } : req.query.sort === 'price-desc' ? { pricePkr: -1 } : req.query.sort === 'updated' ? { priceUpdatedAt: -1 } : { name: 1 };
       const [products, total, brands] = await Promise.all([
@@ -217,13 +256,18 @@ export function createMarketplaceRouter({ Router, requireUser, requireAdmin, req
       ]);
       res.json({
         ok: true,
-        products: products.map(presentProduct),
+        products: products.map((product) => presentProduct(product, pricing)),
         page,
         limit,
         total,
         pages: Math.ceil(total / limit) || 1,
         brands: brands.filter(Boolean).sort(),
-        priceNotice: PRICE_NOTICE,
+        cities: pricing.cities,
+        pricingCity: pricing.city,
+        cityMultiplier: pricing.multiplier,
+        priceNotice: pricing.city
+          ? `${PRICE_NOTICE} Prices below are adjusted for ${pricing.city} (×${pricing.multiplier}).`
+          : PRICE_NOTICE,
       });
     } catch (error) {
       next(error);
@@ -232,10 +276,18 @@ export function createMarketplaceRouter({ Router, requireUser, requireAdmin, req
 
   router.get('/products/:slug', requireDatabase, async (req, res, next) => {
     try {
+      const pricing = await resolveCityPricing(req.query.city);
       const product = await MarketplaceProduct.findOne({ slug: req.params.slug, active: true }).lean();
       if (!product) throw httpError(404, 'Product was not found.');
       const related = await MarketplaceProduct.find({ active: true, categorySlug: product.categorySlug, _id: { $ne: product._id } }).limit(4).lean();
-      res.json({ ok: true, product: presentProduct(product), related: related.map(presentProduct), priceNotice: PRICE_NOTICE });
+      res.json({
+        ok: true,
+        product: presentProduct(product, pricing),
+        related: related.map((item) => presentProduct(item, pricing)),
+        cities: pricing.cities,
+        pricingCity: pricing.city,
+        priceNotice: presentProduct(product, pricing).priceNotice,
+      });
     } catch (error) {
       next(error);
     }
@@ -321,11 +373,13 @@ export function createMarketplaceRouter({ Router, requireUser, requireAdmin, req
   router.get('/meta', requireDatabase, async (_req, res, next) => {
     try {
       const settings = await commerceSettings();
+      const pricing = await resolveCityPricing('');
       res.json({
         ok: true,
         priceNotice: PRICE_NOTICE,
         cancellationRules: CANCELLATION_RULES,
         units: PRODUCT_UNITS,
+        cities: pricing.cities,
         settings: {
           deliveryBasePkr: settings.deliveryBasePkr,
           deliveryPerKmPkr: settings.deliveryPerKmPkr,

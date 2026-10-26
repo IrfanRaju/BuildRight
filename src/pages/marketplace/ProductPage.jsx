@@ -3,16 +3,24 @@ import { api, money } from '../../lib/api';
 import { useCart } from '../../context/CartContext';
 import { EmptyState, Notice, PageHeader, buttonClass, ghostClass } from '../../components/ui';
 
+const CITY_KEY = 'buildright-marketplace-city';
+
+function readStoredCity() {
+  try { return sessionStorage.getItem(CITY_KEY) || ''; } catch { return ''; }
+}
+
 export default function ProductPage({ slug, setPage }) {
   const { add } = useCart();
   const [data, setData] = useState(null);
   const [quantity, setQuantity] = useState(1);
   const [error, setError] = useState('');
   const [added, setAdded] = useState('');
+  const city = readStoredCity();
 
   useEffect(() => {
-    api(`/api/marketplace/products/${slug}`).then(setData).catch((requestError) => setError(requestError.message));
-  }, [slug]);
+    const params = city ? `?city=${encodeURIComponent(city)}` : '';
+    api(`/api/marketplace/products/${slug}${params}`).then(setData).catch((requestError) => setError(requestError.message));
+  }, [slug, city]);
 
   if (error) return <div className="mx-auto max-w-3xl px-4 py-8"><Notice tone="error">{error}</Notice></div>;
   if (!data?.product) return <div className="mx-auto max-w-3xl px-4 py-8"><p className="text-sm text-slate-500">Loading product…</p></div>;
@@ -26,9 +34,18 @@ export default function ProductPage({ slug, setPage }) {
         <img src={product.images?.[0] || '/logoB.png'} alt={product.name} className="h-80 w-full rounded-3xl object-cover" />
         <section className="rounded-3xl border border-slate-200 bg-white p-6">
           <p className="text-3xl font-black">{money(product.pricePkr)} <span className="text-base font-medium text-slate-500">per {product.unit}</span></p>
+          {product.pricingCity ? (
+            <p className="mt-1 text-sm font-semibold text-[#FF7518]">
+              {product.pricingCity} price
+              {product.basePricePkr != null && product.basePricePkr !== product.pricePkr ? (
+                <span className="font-medium text-slate-500"> · catalog base {money(product.basePricePkr)}</span>
+              ) : null}
+            </p>
+          ) : null}
           <p className="mt-2 text-sm text-slate-600">{product.availability}</p>
           <dl className="mt-4 space-y-2 text-sm text-slate-600">
             <div className="flex justify-between"><dt>Brand</dt><dd className="font-semibold text-slate-900">{product.brand || 'Unbranded'}</dd></div>
+            <div className="flex justify-between"><dt>Grade</dt><dd className="font-semibold capitalize text-slate-900">{product.quality || 'standard'}</dd></div>
             <div className="flex justify-between"><dt>Supplier</dt><dd className="font-semibold text-slate-900">{product.supplierName || 'BuildRight catalog'}</dd></div>
             <div className="flex justify-between"><dt>Estimated delivery</dt><dd className="font-semibold text-slate-900">{product.deliveryDays} days</dd></div>
             <div className="flex justify-between"><dt>Price source</dt><dd className="font-semibold text-slate-900">{product.priceSource === 'supplier' ? 'Supplier-verified' : 'Administrator-managed'}</dd></div>

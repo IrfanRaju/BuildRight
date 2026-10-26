@@ -70,7 +70,8 @@ export function createAuthRouter({ Router, env, requireDatabase }) {
       const password = String(req.body?.password || '');
       if (!isEmail(email) || !password) throw httpError(400, 'Email and password are required.');
       const user = await User.findOne({ email }).select('+passwordHash');
-      if (!user || !verifyPassword(password, user.passwordHash)) throw httpError(401, 'Email or password is incorrect.');
+      if (!user) throw httpError(401, 'No account found with this email address.');
+      if (!verifyPassword(password, user.passwordHash)) throw httpError(401, 'Invalid email or password.');
       if (user.disabled || user.accountStatus === 'disabled' || user.accountStatus === 'suspended') {
         throw httpError(403, 'This account has been disabled.');
       }

@@ -24,7 +24,7 @@ export function SupplierWorkspace() {
 
   return (
     <div className="mx-auto max-w-6xl px-4 py-8">
-      <PageHeader eyebrow="Supplier" title="Your materials" description="Update price and stock for products linked to your account. Prices stay marked with the date you change them and are not described as live." />
+      <PageHeader variant="portal" eyebrow="Supplier" title="Your materials" description="Update price and stock for products linked to your account. Prices stay marked with the date you change them and are not described as live." />
       {error && <div className="mb-4"><Notice tone="error">{error}</Notice></div>}
       <div className="space-y-3">
         {products.map((product) => (
@@ -58,7 +58,7 @@ export function ProviderWorkspace() {
 
   return (
     <div className="mx-auto max-w-4xl px-4 py-8">
-      <PageHeader eyebrow="Service provider" title="Assigned repair requests" description="Accepting a request means you are available. It does not book the work until the customer confirms." />
+      <PageHeader variant="portal" eyebrow="Service provider" title="Assigned repair requests" description="Accepting a request means you are available. It does not book the work until the customer confirms." />
       {notice && <div className="mb-4"><Notice>{notice}</Notice></div>}
       {error && <div className="mb-4"><Notice tone="error">{error}</Notice></div>}
       {requests.length === 0 && <EmptyState title="No assigned requests" text="Requests appear after an administrator assigns them to you." />}

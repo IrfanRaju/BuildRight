@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { api, money } from '../lib/api';
 import { useAuth } from '../context/AuthContext';
-import { EmptyState, Field, Notice, PageHeader, buttonClass, ghostClass } from '../components/ui';
+import { EmptyState, Field, Notice, PageHeader, SearchableSelect, buttonClass, ghostClass } from '../components/ui';
 
 const services = [
   { slug: 'construction-planning', title: 'Construction planning', text: 'Organize scope, floors, and room requirements before work starts.', action: 'Open design studio', page: 'designer' },
@@ -130,10 +130,15 @@ export function ProjectsPage({ setPage }) {
         <button type="button" className={mine ? ghostClass : buttonClass} onClick={() => setMine(false)}>Public gallery</button>
         <button type="button" className={mine ? buttonClass : ghostClass} onClick={() => user ? setMine(true) : setPage('login')}>My projects</button>
         <input className="input max-w-xs" value={query} onChange={(event) => setQuery(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') load(); }} placeholder="Search titles" aria-label="Search projects" />
-        <select className="input w-48" value={category} onChange={(event) => setCategory(event.target.value)} aria-label="Filter by category">
-          <option value="">All categories</option>
-          {['residential', 'commercial', 'corporate', 'institutional', 'infrastructure'].map((item) => <option key={item}>{item}</option>)}
-        </select>
+        <SearchableSelect
+          className="w-48"
+          value={category}
+          onChange={setCategory}
+          options={['residential', 'commercial', 'corporate', 'institutional', 'infrastructure']}
+          clearable
+          emptyLabel="All categories"
+          aria-label="Filter by category"
+        />
       </div>
       {loading && <p className="text-sm text-slate-500">Loading projects…</p>}
       {!loading && projects.length === 0 && <EmptyState title="No projects in this view" text="Create one below, or seed the sample gallery with npm run seed." />}
@@ -162,7 +167,7 @@ export function ProjectsPage({ setPage }) {
         <h2 className="md:col-span-2 text-lg font-bold">{user ? 'Create a project' : 'Sign in to create a project'}</h2>
         <Field label="Title"><input className="input" required value={form.title} onChange={(event) => setForm({ ...form, title: event.target.value })} /></Field>
         <Field label="Type"><input className="input" value={form.projectType} onChange={(event) => setForm({ ...form, projectType: event.target.value })} /></Field>
-        <Field label="Category"><select className="input" value={form.category} onChange={(event) => setForm({ ...form, category: event.target.value })}>{['residential', 'commercial', 'corporate', 'institutional', 'infrastructure'].map((item) => <option key={item}>{item}</option>)}</select></Field>
+        <Field label="Category"><SearchableSelect value={form.category} onChange={(next) => setForm({ ...form, category: next })} options={['residential', 'commercial', 'corporate', 'institutional', 'infrastructure']} /></Field>
         <Field label="Location"><input className="input" value={form.location} onChange={(event) => setForm({ ...form, location: event.target.value })} /></Field>
         <Field label="Description"><textarea className="input min-h-24 md:col-span-2" value={form.description} onChange={(event) => setForm({ ...form, description: event.target.value })} /></Field>
         <button className={buttonClass} type="submit" disabled={!user}>Save project</button>

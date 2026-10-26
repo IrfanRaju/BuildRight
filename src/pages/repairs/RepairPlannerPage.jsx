@@ -4,7 +4,7 @@ import { api, money } from '../../lib/api';
 import { useAuth } from '../../context/AuthContext';
 import { useCart } from '../../context/CartContext';
 import { compressImage } from '../../lib/images';
-import { Field, Notice, PageHeader, buttonClass, ghostClass } from '../../components/ui';
+import { Field, Notice, PageHeader, SearchableSelect, buttonClass, ghostClass } from '../../components/ui';
 
 const BUILDINGS = ['House', 'Apartment', 'Shop', 'Office', 'Plaza', 'Other'];
 const CITIES = ['Islamabad', 'Rawalpindi', 'Lahore', 'Karachi', 'Peshawar', 'Multan', 'Faisalabad', 'Gilgit-Baltistan'];
@@ -145,12 +145,12 @@ export default function RepairPlannerPage({ setPage }) {
       {step === 2 && (
         <form className="grid gap-4 rounded-3xl border border-slate-200 bg-white p-5 md:grid-cols-2" onSubmit={(event) => { event.preventDefault(); runEstimate(); }}>
           <Field label="Project name"><input className="input" value={form.title} onChange={(event) => setForm({ ...form, title: event.target.value })} required /></Field>
-          <Field label="Building type"><select className="input" value={form.buildingType} onChange={(event) => setForm({ ...form, buildingType: event.target.value })}>{BUILDINGS.map((item) => <option key={item}>{item}</option>)}</select></Field>
-          <Field label="Location"><select className="input" value={form.location} onChange={(event) => setForm({ ...form, location: event.target.value })}>{CITIES.map((item) => <option key={item}>{item}</option>)}</select></Field>
+          <Field label="Building type"><SearchableSelect value={form.buildingType} onChange={(next) => setForm({ ...form, buildingType: next })} options={BUILDINGS} /></Field>
+          <Field label="Location"><SearchableSelect value={form.location} onChange={(next) => setForm({ ...form, location: next })} options={CITIES} /></Field>
           <Field label="Budget (PKR)"><input className="input" type="number" min="0" value={form.budget} onChange={(event) => setForm({ ...form, budget: Number(event.target.value) })} /></Field>
           <Field label="Desired start"><input className="input" type="date" value={form.startDate} onChange={(event) => setForm({ ...form, startDate: event.target.value })} /></Field>
-          <Field label="Current condition"><select className="input" value={form.condition} onChange={(event) => setForm({ ...form, condition: event.target.value })}><option value="minor">Minor damage</option><option value="moderate">Moderate damage</option><option value="major">Major damage</option></select></Field>
-          <Field label="Material quality"><select className="input" value={form.quality} onChange={(event) => setForm({ ...form, quality: event.target.value })}><option value="economy">Economy</option><option value="standard">Standard</option><option value="premium">Premium</option><option value="luxury">Luxury</option></select></Field>
+          <Field label="Current condition"><SearchableSelect value={form.condition} onChange={(next) => setForm({ ...form, condition: next })} options={[{ value: 'minor', label: 'Minor damage' }, { value: 'moderate', label: 'Moderate damage' }, { value: 'major', label: 'Major damage' }]} /></Field>
+          <Field label="Material quality"><SearchableSelect value={form.quality} onChange={(next) => setForm({ ...form, quality: next })} options={[{ value: 'economy', label: 'Economy' }, { value: 'standard', label: 'Standard' }, { value: 'premium', label: 'Premium' }, { value: 'luxury', label: 'Luxury' }]} /></Field>
           <Field label="Photographs of the problem"><input className="input" type="file" accept="image/*" multiple onChange={onPhotos} /></Field>
           {photos.length > 0 && <div className="flex gap-2 md:col-span-2">{photos.map((photo) => <img key={photo.caption} src={photo.dataUrl} alt="" className="h-20 w-20 rounded-xl object-cover" />)}</div>}
           {selected.map((slug) => {
@@ -189,7 +189,18 @@ export default function RepairPlannerPage({ setPage }) {
                   <tr key={`${line.role}-${line.name}`} className="border-t border-slate-100">
                     <td className="py-2">{line.name}{line.unmatched ? ' · no catalog price' : ''}</td>
                     <td><input className="input w-24" type="number" min="0" step="0.01" value={line.quantity} onChange={(event) => editMaterial(index, { quantity: Number(event.target.value) })} /></td>
-                    <td>{line.options?.length ? <select className="input" value={line.productId} onChange={(event) => { const option = line.options.find((item) => item._id === event.target.value); editMaterial(index, { productId: option._id, brand: option.brand, unitPrice: option.pricePkr, productName: option.name }); }}>{line.options.map((option) => <option key={option._id} value={option._id}>{option.brand}</option>)}</select> : '—'}</td>
+                    <td>{line.options?.length ? (
+                      <SearchableSelect
+                        className="min-w-[10rem]"
+                        value={String(line.productId || '')}
+                        onChange={(next) => {
+                          const option = line.options.find((item) => String(item._id) === String(next));
+                          if (!option) return;
+                          editMaterial(index, { productId: option._id, brand: option.brand, unitPrice: option.pricePkr, productName: option.name });
+                        }}
+                        options={line.options.map((option) => ({ value: String(option._id), label: option.brand }))}
+                      />
+                    ) : '—'}</td>
                     <td>{line.unmatched ? '—' : money(line.unitPrice)}<div className="text-[11px] text-slate-400">{line.priceUpdatedAt ? new Date(line.priceUpdatedAt).toLocaleDateString() : ''}</div></td>
                     <td>{money(line.lineTotal)}</td>
                   </tr>

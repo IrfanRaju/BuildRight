@@ -33,6 +33,7 @@ import {
 } from 'lucide-react';
 import { buildDxf, buildElevationSvg, buildIfc, buildPlanSvg, buildSectionSvg, createDesignFromPrompt, designQuantities, resizeRoom, validateDesign } from './design-engine';
 import { buildDrawing } from './cad/drawing';
+import { SearchableSelect } from './components/ui';
 
 const STORAGE_KEY = 'buildright-design-projects-v1';
 const STARTER_PROMPTS = [
@@ -611,14 +612,14 @@ export default function DesignStudio() {
               <div className="mb-4 rounded-2xl border border-slate-200 bg-white p-4">
                 <button onClick={() => document.getElementById('design-config')?.classList.toggle('hidden')} className="flex w-full items-center justify-between text-left text-sm font-bold text-slate-800"><span>Optional quick configuration</span><ChevronDown className="h-4 w-4 text-slate-400" /></button>
                 <div id="design-config" className="mt-4 hidden grid-cols-2 gap-3 md:grid-cols-4">
-                  <label className="text-xs text-slate-500">Project type<select className="input mt-1" value={configDraft.type} onChange={(e) => setConfigDraft({ ...configDraft, type: e.target.value })}>{PROJECT_TYPES.map((type) => <option key={type}>{type}</option>)}</select></label>
+                  <label className="text-xs text-slate-500">Project type<SearchableSelect className="mt-1" value={configDraft.type} onChange={(next) => setConfigDraft({ ...configDraft, type: next })} options={PROJECT_TYPES} /></label>
                   <label className="text-xs text-slate-500">Width<input className="input mt-1" type="number" min="6" max="120" value={configDraft.width} onChange={(e) => setConfigDraft({ ...configDraft, width: Number(e.target.value) })} /></label>
                   <label className="text-xs text-slate-500">Depth<input className="input mt-1" type="number" min="6" max="120" value={configDraft.depth} onChange={(e) => setConfigDraft({ ...configDraft, depth: Number(e.target.value) })} /></label>
                   <label className="text-xs text-slate-500">Floors<input className="input mt-1" type="number" min="1" max="20" value={configDraft.floors} onChange={(e) => setConfigDraft({ ...configDraft, floors: Number(e.target.value) })} /></label>
-                  <label className="text-xs text-slate-500">Units<select className="input mt-1" value={configDraft.unit} onChange={(e) => setConfigDraft({ ...configDraft, unit: e.target.value })}><option>meters</option><option>feet</option><option>marla</option><option>kanal</option></select></label>
-                  <label className="text-xs text-slate-500">Style<select className="input mt-1" value={configDraft.style} onChange={(e) => setConfigDraft({ ...configDraft, style: e.target.value })}><option>Modern</option><option>Contemporary</option><option>Traditional</option><option>Minimalist</option></select></label>
-                  <label className="text-xs text-slate-500">Location<select className="input mt-1" value={configDraft.location} onChange={(e) => setConfigDraft({ ...configDraft, location: e.target.value })}>{LOCATIONS.map((location) => <option key={location}>{location}</option>)}</select></label>
-                  <label className="text-xs text-slate-500">Exterior material<select className="input mt-1" value={configDraft.material} onChange={(e) => setConfigDraft({ ...configDraft, material: e.target.value })}><option value="concrete">Concrete</option><option value="brick">Brick</option><option value="stone">Stone</option><option value="wood">Wood</option><option value="plaster">Plaster</option><option value="stone-glass">Stone and glass</option><option value="metal">Metal</option></select></label>
+                  <label className="text-xs text-slate-500">Units<SearchableSelect className="mt-1" value={configDraft.unit} onChange={(next) => setConfigDraft({ ...configDraft, unit: next })} options={['meters', 'feet', 'marla', 'kanal']} /></label>
+                  <label className="text-xs text-slate-500">Style<SearchableSelect className="mt-1" value={configDraft.style} onChange={(next) => setConfigDraft({ ...configDraft, style: next })} options={['Modern', 'Contemporary', 'Traditional', 'Minimalist']} /></label>
+                  <label className="text-xs text-slate-500">Location<SearchableSelect className="mt-1" value={configDraft.location} onChange={(next) => setConfigDraft({ ...configDraft, location: next })} options={LOCATIONS} /></label>
+                  <label className="text-xs text-slate-500">Exterior material<SearchableSelect className="mt-1" value={configDraft.material} onChange={(next) => setConfigDraft({ ...configDraft, material: next })} options={[{ value: 'concrete', label: 'Concrete' }, { value: 'brick', label: 'Brick' }, { value: 'stone', label: 'Stone' }, { value: 'wood', label: 'Wood' }, { value: 'plaster', label: 'Plaster' }, { value: 'stone-glass', label: 'Stone and glass' }, { value: 'metal', label: 'Metal' }]} /></label>
                   <label className="text-xs text-slate-500">Budget (optional)<input className="input mt-1" value={configDraft.budget} onChange={(e) => setConfigDraft({ ...configDraft, budget: e.target.value })} placeholder="PKR" /></label>
                   <button onClick={createFromConfiguration} className="col-span-2 rounded-xl bg-brand-orange px-4 py-2 text-xs font-bold text-white md:col-span-4">Generate from configuration</button>
                 </div>
@@ -635,9 +636,23 @@ export default function DesignStudio() {
                     <button onClick={() => setTab('model')} className={`flex-1 rounded-xl px-4 py-2.5 text-xs font-bold transition sm:flex-none ${tab === 'model' ? 'bg-[#101828] text-white shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}>3D Model</button>
                   </div>
                   <div className="-mx-3 flex gap-2 overflow-x-auto px-3 pb-1 [scrollbar-width:thin] sm:mx-0 sm:flex-wrap sm:overflow-visible sm:px-0 sm:pb-0">
-                    <select aria-label="Floor selector" className="shrink-0 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700" value={selectedFloor} onChange={(e) => setSelectedFloor(Number(e.target.value))}>{Array.from({ length: config.floors }, (_, index) => <option key={index} value={index}>Floor {index + 1}</option>)}</select>
+                    <SearchableSelect
+                      aria-label="Floor selector"
+                      className="shrink-0 w-32"
+                      triggerClassName="!rounded-xl !border-slate-200 !bg-white !px-3 !py-2 !text-xs !font-semibold !text-slate-700"
+                      value={String(selectedFloor)}
+                      onChange={(next) => setSelectedFloor(Number(next))}
+                      options={Array.from({ length: config.floors }, (_, index) => ({ value: String(index), label: `Floor ${index + 1}` }))}
+                    />
                     {tab === 'model' && <>
-                      <select aria-label="Camera view" className="shrink-0 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700" value={viewMode} onChange={(e) => { setViewMode(e.target.value); setFirstPerson(false); }}>{['Perspective', 'Front', 'Rear', 'Left', 'Right', 'Top', 'Interior'].map((view) => <option key={view}>{view}</option>)}</select>
+                      <SearchableSelect
+                        aria-label="Camera view"
+                        className="shrink-0 w-36"
+                        triggerClassName="!rounded-xl !border-slate-200 !bg-white !px-3 !py-2 !text-xs !font-semibold !text-slate-700"
+                        value={viewMode}
+                        onChange={(next) => { setViewMode(next); setFirstPerson(false); }}
+                        options={['Perspective', 'Front', 'Rear', 'Left', 'Right', 'Top', 'Interior']}
+                      />
                       <button type="button" onClick={toggleLighting} className="shrink-0 rounded-xl border border-slate-200 px-3 py-2 text-xs font-semibold">{config.lighting === 'night' ? 'Day light' : 'Night light'}</button>
                       <button type="button" onClick={() => setSectionCut((value) => !value)} className={`shrink-0 rounded-xl border px-3 py-2 text-xs font-semibold ${sectionCut ? 'border-orange-300 bg-orange-50 text-orange-800' : 'border-slate-200'}`}>Section</button>
                       <button type="button" onClick={() => setHideExterior((value) => !value)} className={`shrink-0 rounded-xl border px-3 py-2 text-xs font-semibold ${hideExterior ? 'border-orange-300 bg-orange-50 text-orange-800' : 'border-slate-200'}`}>Hide walls</button>
@@ -648,7 +663,22 @@ export default function DesignStudio() {
                       <button type="button" onClick={exportIfc} title="Downloads an IFC2x3 wall index. It is not a certified Revit solid model." className="shrink-0 rounded-xl border border-slate-200 px-3 py-2 text-xs font-semibold">IFC</button>
                     </>}
                     {tab === 'plan' ? <>
-                      <select aria-label="Drawing sheet" className="shrink-0 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold" value={sheet} onChange={(event) => setSheet(event.target.value)}><option value="floor">Floor plan</option><option value="elev-front">Front elevation</option><option value="elev-rear">Rear elevation</option><option value="elev-left">Left elevation</option><option value="elev-right">Right elevation</option><option value="section-long">Longitudinal section</option><option value="section-cross">Cross section</option></select>
+                      <SearchableSelect
+                        aria-label="Drawing sheet"
+                        className="shrink-0 w-44"
+                        triggerClassName="!rounded-xl !border-slate-200 !bg-white !px-3 !py-2 !text-xs !font-semibold"
+                        value={sheet}
+                        onChange={setSheet}
+                        options={[
+                          { value: 'floor', label: 'Floor plan' },
+                          { value: 'elev-front', label: 'Front elevation' },
+                          { value: 'elev-rear', label: 'Rear elevation' },
+                          { value: 'elev-left', label: 'Left elevation' },
+                          { value: 'elev-right', label: 'Right elevation' },
+                          { value: 'section-long', label: 'Longitudinal section' },
+                          { value: 'section-cross', label: 'Cross section' },
+                        ]}
+                      />
                       <button onClick={() => setZoom((value) => Math.max(0.6, value - 0.1))} className="shrink-0 rounded-xl border border-slate-200 px-3 py-2 text-xs">−</button>
                       <span className="shrink-0 self-center text-xs text-slate-500">{Math.round(zoom * 100)}%</span>
                       <button onClick={() => setZoom((value) => Math.min(1.5, value + 0.1))} className="shrink-0 rounded-xl border border-slate-200 px-3 py-2 text-xs">+</button>
@@ -727,7 +757,7 @@ export default function DesignStudio() {
                   <div className="border-b border-slate-100 p-4">
                     <div className="flex items-center justify-between"><h2 className="text-sm font-bold text-slate-900">Design specifications</h2><button onClick={() => setTab('plan')} className="text-xs font-semibold text-brand-orange"><Pencil className="mr-1 inline h-3.5 w-3.5" /> Edit</button></div>
                     <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
-                      <label className="text-slate-500">Type<select className="input mt-1 !rounded-lg !px-2 !py-2" value={config.projectType} onChange={(e) => adjustConfig('projectType', e.target.value)}>{PROJECT_TYPES.map((type) => <option key={type}>{type}</option>)}</select></label>
+                      <label className="text-slate-500">Type<SearchableSelect className="mt-1" triggerClassName="!rounded-lg !px-2 !py-2" value={config.projectType} onChange={(next) => adjustConfig('projectType', next)} options={PROJECT_TYPES} /></label>
                       <label className="text-slate-500">Floors<input className="input mt-1 !rounded-lg !px-2 !py-2" type="number" min="1" max="20" value={config.floors} onChange={(e) => adjustConfig('floors', Number(e.target.value))} /></label>
                       <label className="text-slate-500">Width ({config.unit})<input className="input mt-1 !rounded-lg !px-2 !py-2" type="number" min="6" max="120" value={config.width} onChange={(e) => adjustConfig('width', Number(e.target.value))} /></label>
                       <label className="text-slate-500">Depth ({config.unit})<input className="input mt-1 !rounded-lg !px-2 !py-2" type="number" min="6" max="120" value={config.depth} onChange={(e) => adjustConfig('depth', Number(e.target.value))} /></label>

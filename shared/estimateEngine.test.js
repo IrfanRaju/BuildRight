@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { calculateEstimate, toSquareFeet, MARLA_SQFT } from './estimateEngine.js';
+import { buildMaterialRatesTicker, calculateEstimate, toSquareFeet, MARLA_SQFT } from './estimateEngine.js';
 
 const book = {
   illustrative: true,
@@ -38,6 +38,29 @@ const baseInput = {
   taxPercent: 10,
   inflationPercent: 0,
 };
+
+test('buildMaterialRatesTicker applies regional multipliers from the rate book', () => {
+  const tickerBook = {
+    ...book,
+    regionalRates: {
+      Islamabad: { multiplier: 1, transportAdjustment: 0 },
+      Lahore: { multiplier: 2, transportAdjustment: 0 },
+    },
+    materials: [
+      ...book.materials,
+      { code: 'steel', name: 'Steel', category: 'Structural', unit: 'kg', scope: 'grey', perSqFt: 1, rate: 100, quality: 'standard', location: 'Islamabad', lastPriceUpdate: '2026-01-15T00:00:00.000Z' },
+      { code: 'bricks', name: 'Bricks', category: 'Masonry', unit: 'nos', scope: 'grey', perSqFt: 1, rate: 20, quality: 'standard', location: 'Islamabad' },
+      { code: 'sand-grey', name: 'Sand', category: 'Aggregates', unit: 'cft', scope: 'grey', perSqFt: 1, rate: 30, quality: 'standard', location: 'Islamabad' },
+      { code: 'crush', name: 'Crush', category: 'Aggregates', unit: 'cft', scope: 'grey', perSqFt: 1, rate: 40, quality: 'standard', location: 'Islamabad' },
+    ],
+  };
+  const ticker = buildMaterialRatesTicker(tickerBook);
+  const lahoreSteel = ticker.items.find((item) => item.id === 'Lahore:steel');
+  const islamabadSteel = ticker.items.find((item) => item.id === 'Islamabad:steel');
+  assert.equal(islamabadSteel.rate, 100);
+  assert.equal(lahoreSteel.rate, 200);
+  assert.ok(ticker.items.every((item) => item.city && item.material && item.rate >= 0 && item.lastUpdated));
+});
 
 test('converts marla and kanal using documented factors', () => {
   assert.equal(toSquareFeet(10, 'marla'), 10 * MARLA_SQFT);

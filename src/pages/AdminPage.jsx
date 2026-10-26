@@ -10,7 +10,7 @@ import {
 } from 'recharts';
 import { api, money } from '../lib/api';
 import { useAuth } from '../context/AuthContext';
-import { EmptyState, Field, Notice, PageHeader, buttonClass, ghostClass } from '../components/ui';
+import { EmptyState, Field, Notice, PageHeader, SearchableSelect, buttonClass, ghostClass } from '../components/ui';
 import ImageUpload from '../components/ImageUpload';
 import CommerceAdmin from './admin/CommerceAdmin';
 
@@ -162,20 +162,20 @@ export default function AdminPage({ setPage }) {
   };
 
   return (
-    <div className="mx-auto max-w-[1400px] px-4 py-8">
-      <PageHeader eyebrow="Admin" title="BuildRight control center" description="Manage materials, regional multipliers, labor, margins, uploads, and estimates. All mutations require a JWT admin role." />
+    <div className="mx-auto max-w-[1400px] px-4 py-6 sm:px-5 lg:px-6">
+      <PageHeader variant="portal" eyebrow="Admin" title="Control center" description="Manage materials, regional multipliers, labor, margins, uploads, and estimates. Mutations require an admin JWT." />
       {error && <div className="mb-4"><Notice tone="error">{error}</Notice></div>}
       {status && <div className="mb-4"><Notice tone="success">{status}</Notice></div>}
 
-      <div className="grid gap-6 lg:grid-cols-[240px_1fr]">
-        <aside className="h-fit rounded-3xl border border-slate-200 bg-white p-3 shadow-soft lg:sticky lg:top-4">
-          <nav className="flex flex-col gap-1">
+      <div className="grid gap-5 lg:grid-cols-[220px_1fr]">
+        <aside className="h-fit rounded-xl border border-slate-200 bg-white p-2 shadow-sm lg:sticky lg:top-[4.5rem]">
+          <nav className="flex flex-col gap-0.5" aria-label="Admin sections">
             {NAV.map((item) => (
               <button
                 key={item.id}
                 type="button"
                 onClick={() => setTab(item.id)}
-                className={`rounded-2xl px-3 py-2 text-left text-sm font-semibold ${tab === item.id ? 'bg-[#101828] text-white' : 'text-slate-600 hover:bg-slate-50'}`}
+                className={`rounded-lg px-3 py-2 text-left text-sm font-medium ${tab === item.id ? 'bg-[#0B1220] text-white' : 'text-slate-600 hover:bg-slate-50'}`}
               >
                 {item.label}
               </button>
@@ -446,9 +446,13 @@ export default function AdminPage({ setPage }) {
                 <div key={person._id} className="flex flex-wrap items-center justify-between gap-2 rounded-2xl bg-white px-4 py-3 text-sm shadow-soft">
                   <span>{person.name} · {person.email} · {person.accountStatus || 'active'}</span>
                   <span className="flex gap-2">
-                    <select aria-label={`Role for ${person.email}`} value={person.role} onChange={(event) => api(`/api/admin/users/${person._id}`, { method: 'PATCH', body: { role: event.target.value } }).then(() => loadUsers())}>
-                      {['user', 'supplier', 'provider', 'admin'].map((role) => <option key={role}>{role}</option>)}
-                    </select>
+                    <SearchableSelect
+                      className="w-40"
+                      aria-label={`Role for ${person.email}`}
+                      value={person.role}
+                      onChange={(next) => api(`/api/admin/users/${person._id}`, { method: 'PATCH', body: { role: next } }).then(() => loadUsers())}
+                      options={['user', 'supplier', 'provider', 'admin']}
+                    />
                     <button type="button" onClick={() => api(`/api/admin/users/${person._id}`, { method: 'PATCH', body: { disabled: !person.disabled } }).then(() => loadUsers())}>{person.disabled ? 'Enable' : 'Disable'}</button>
                   </span>
                 </div>
@@ -513,8 +517,8 @@ export default function AdminPage({ setPage }) {
             {['code', 'name', 'category', 'brand', 'unit', 'location', 'supplier', 'source'].map((field) => (
               <Field key={field} label={field}><input className="input" value={draft[field] || ''} onChange={(event) => setDraft({ ...draft, [field]: event.target.value })} required={['code', 'name', 'category', 'unit'].includes(field)} /></Field>
             ))}
-            <Field label="Scope"><select className="input" value={draft.scope} onChange={(event) => setDraft({ ...draft, scope: event.target.value })}><option value="grey">grey</option><option value="finishing">finishing</option></select></Field>
-            <Field label="Availability"><select className="input" value={draft.availability || 'in_stock'} onChange={(event) => setDraft({ ...draft, availability: event.target.value })}><option value="in_stock">in_stock</option><option value="limited">limited</option><option value="out_of_stock">out_of_stock</option><option value="made_to_order">made_to_order</option></select></Field>
+            <Field label="Scope"><SearchableSelect value={draft.scope} onChange={(next) => setDraft({ ...draft, scope: next })} options={[{ value: 'grey', label: 'grey' }, { value: 'finishing', label: 'finishing' }]} /></Field>
+            <Field label="Availability"><SearchableSelect value={draft.availability || 'in_stock'} onChange={(next) => setDraft({ ...draft, availability: next })} options={[{ value: 'in_stock', label: 'in_stock' }, { value: 'limited', label: 'limited' }, { value: 'out_of_stock', label: 'out_of_stock' }, { value: 'made_to_order', label: 'made_to_order' }]} /></Field>
             <Field label="Rate (PKR)"><input className="input" type="number" min="0" value={draft.rate} onChange={(event) => setDraft({ ...draft, rate: Number(event.target.value) })} required /></Field>
             <Field label="Per sq ft"><input className="input" type="number" min="0" step="0.001" value={draft.perSqFt} onChange={(event) => setDraft({ ...draft, perSqFt: Number(event.target.value) })} required /></Field>
             <Field label="Stock"><input className="input" type="number" min="0" value={draft.stockQuantity || 0} onChange={(event) => setDraft({ ...draft, stockQuantity: Number(event.target.value) })} /></Field>
@@ -583,13 +587,15 @@ export default function AdminPage({ setPage }) {
           >
             <Field label="City"><input className="input" value={draft.location} onChange={(event) => setDraft({ ...draft, location: event.target.value })} required /></Field>
             <Field label="Skill">
-              <select className="input" value={draft.skill || 'general'} onChange={(event) => setDraft({ ...draft, skill: event.target.value })}>
-                {['mason', 'laborer', 'steel_fixer', 'carpenter', 'electrician', 'plumber', 'painter', 'tile_worker', 'general', 'equipment'].map((skill) => <option key={skill}>{skill}</option>)}
-              </select>
+              <SearchableSelect
+                value={draft.skill || 'general'}
+                onChange={(next) => setDraft({ ...draft, skill: next })}
+                options={['mason', 'laborer', 'steel_fixer', 'carpenter', 'electrician', 'plumber', 'painter', 'tile_worker', 'general', 'equipment']}
+              />
             </Field>
-            <Field label="Unit"><select className="input" value={draft.unit || 'per_sq_ft'} onChange={(event) => setDraft({ ...draft, unit: event.target.value })}><option value="daily">daily</option><option value="hourly">hourly</option><option value="per_sq_ft">per_sq_ft</option></select></Field>
-            <Field label="Scope"><select className="input" value={draft.scope || 'any'} onChange={(event) => setDraft({ ...draft, scope: event.target.value })}><option>any</option><option>grey</option><option>finishing</option></select></Field>
-            <Field label="Kind"><select className="input" value={draft.kind || 'labor'} onChange={(event) => setDraft({ ...draft, kind: event.target.value })}><option>labor</option><option>equipment</option></select></Field>
+            <Field label="Unit"><SearchableSelect value={draft.unit || 'per_sq_ft'} onChange={(next) => setDraft({ ...draft, unit: next })} options={[{ value: 'daily', label: 'daily' }, { value: 'hourly', label: 'hourly' }, { value: 'per_sq_ft', label: 'per_sq_ft' }]} /></Field>
+            <Field label="Scope"><SearchableSelect value={draft.scope || 'any'} onChange={(next) => setDraft({ ...draft, scope: next })} options={['any', 'grey', 'finishing']} /></Field>
+            <Field label="Kind"><SearchableSelect value={draft.kind || 'labor'} onChange={(next) => setDraft({ ...draft, kind: next })} options={['labor', 'equipment']} /></Field>
             <Field label="Rate / ratePerSqFt"><input className="input" type="number" min="0" value={draft.ratePerSqFt} onChange={(event) => setDraft({ ...draft, ratePerSqFt: Number(event.target.value), rate: Number(event.target.value) })} required /></Field>
             <button className={`${buttonClass} md:col-span-2`} type="submit">Save</button>
           </form>
@@ -616,7 +622,7 @@ export default function AdminPage({ setPage }) {
             <Field label="Name"><input className="input" value={draft.name} onChange={(event) => setDraft({ ...draft, name: event.target.value })} required /></Field>
             <Field label="Project type (* = any)"><input className="input" value={draft.projectType} onChange={(event) => setDraft({ ...draft, projectType: event.target.value })} /></Field>
             <Field label="Quality"><input className="input" value={draft.quality} onChange={(event) => setDraft({ ...draft, quality: event.target.value })} /></Field>
-            <Field label="Project size"><select className="input" value={draft.projectSize} onChange={(event) => setDraft({ ...draft, projectSize: event.target.value })}><option>any</option><option>small</option><option>medium</option><option>large</option></select></Field>
+            <Field label="Project size"><SearchableSelect value={draft.projectSize} onChange={(next) => setDraft({ ...draft, projectSize: next })} options={['any', 'small', 'medium', 'large']} /></Field>
             <Field label="Margin %"><input className="input" type="number" min="0" max="40" value={draft.marginPercent} onChange={(event) => setDraft({ ...draft, marginPercent: Number(event.target.value) })} required /></Field>
             <Field label="Priority (lower wins)"><input className="input" type="number" value={draft.priority} onChange={(event) => setDraft({ ...draft, priority: Number(event.target.value) })} /></Field>
             <Field label="Min covered area"><input className="input" type="number" value={draft.minCoveredArea || 0} onChange={(event) => setDraft({ ...draft, minCoveredArea: Number(event.target.value) })} /></Field>
@@ -646,7 +652,7 @@ export default function AdminPage({ setPage }) {
             {['code', 'name', 'category', 'unit', 'buildingType', 'quality'].map((field) => (
               <Field key={field} label={field}><input className="input" value={draft[field] || ''} onChange={(event) => setDraft({ ...draft, [field]: event.target.value })} required={['code', 'name', 'category', 'unit'].includes(field)} /></Field>
             ))}
-            <Field label="Scope"><select className="input" value={draft.scope} onChange={(event) => setDraft({ ...draft, scope: event.target.value })}><option>grey</option><option>finishing</option></select></Field>
+            <Field label="Scope"><SearchableSelect value={draft.scope} onChange={(next) => setDraft({ ...draft, scope: next })} options={['grey', 'finishing']} /></Field>
             <Field label="Per sq ft"><input className="input" type="number" step="0.001" min="0" value={draft.perSqFt} onChange={(event) => setDraft({ ...draft, perSqFt: Number(event.target.value) })} required /></Field>
             <Field label="Floor factor"><input className="input" type="number" step="0.001" value={draft.floorFactor || 0} onChange={(event) => setDraft({ ...draft, floorFactor: Number(event.target.value) })} /></Field>
             <button className={`${buttonClass} md:col-span-2`} type="submit">Save</button>

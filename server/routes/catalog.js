@@ -3,9 +3,32 @@ import { httpError, isEmail, pagination, slugify } from '../lib/http.js';
 import { containsRegex } from '../lib/search.js';
 import { recordAudit } from '../services/database.js';
 import { recordPriceChange } from '../services/priceHistory.js';
+import { loadRateBook } from '../services/rateBookService.js';
+import { buildMaterialRatesTicker, TICKER_MATERIAL_CODES } from '../../shared/estimateEngine.js';
 
 export function createCatalogRouter({ Router, requireAdmin, requireDatabase }) {
   const router = Router();
+
+  /** Compact city × material rates for the public navbar ticker (from MaterialRate + RegionalRate). */
+  router.get('/materials/ticker', requireDatabase, async (req, res, next) => {
+    try {
+      const book = await loadRateBook({});
+      const quality = String(req.query.quality || 'standard').toLowerCase();
+      const codes = typeof req.query.codes === 'string' && req.query.codes.trim()
+        ? req.query.codes.split(',').map((item) => item.trim()).filter(Boolean).slice(0, 12)
+        : TICKER_MATERIAL_CODES;
+      const ticker = buildMaterialRatesTicker(book, { quality, codes });
+      res.json({
+        ok: true,
+        ...ticker,
+        notice: ticker.illustrative
+          ? 'Rates are from the MongoDB catalog (seeded values are illustrative planning figures, not a live market feed).'
+          : 'Rates are from the configured MongoDB catalog.',
+      });
+    } catch (error) {
+      next(error);
+    }
+  });
 
   router.get('/materials', requireDatabase, async (req, res, next) => {
     try {

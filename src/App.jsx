@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { motion, useReducedMotion } from 'framer-motion';
 import {
   ArrowRight,
@@ -6,6 +6,7 @@ import {
   Building2,
   Calculator,
   CheckCircle2,
+  ChevronDown,
   ChevronRight,
   CircleDollarSign,
   Download,
@@ -75,6 +76,8 @@ import { useCart } from './context/CartContext';
 import { api } from './lib/api';
 import { pageFromPath, pathFor } from './lib/routes';
 import WorkspaceShell from './components/WorkspaceShell';
+import RatesTicker from './components/RatesTicker';
+import { SearchableSelect } from './components/ui';
 
 const DesignStudio = lazy(() => import('./DesignStudio'));
 const EstimatorWorkspace = lazy(() => import('./pages/EstimatorPage'));
@@ -92,17 +95,26 @@ import { AboutPage, ArticlePage, BlogPage, ContactPage, ContractorsPage, Project
 import { ForgotPage, LoginPage, RegisterPage, ResetPage } from './pages/AuthPages';
 import { ProviderWorkspace, SupplierWorkspace } from './pages/commerce/Workspaces';
 
-const navItems = [
+const primaryNavItems = [
   { label: 'Home', id: 'home' },
-  { label: 'About', id: 'about' },
   { label: 'Services', id: 'services' },
   { label: 'Estimator', id: 'estimator' },
   { label: 'Design', id: 'design', title: '2D/3D Design' },
   { label: 'Projects', id: 'projects' },
   { label: 'Marketplace', id: 'marketplace' },
   { label: 'Repairs', id: 'repairs' },
+];
+
+const moreNavItems = [
+  { label: 'About', id: 'about' },
   { label: 'Contact', id: 'contact' },
 ];
+
+const navItems = [...primaryNavItems, ...moreNavItems];
+
+function isNavActive(page, itemId) {
+  return page === (itemId === 'design' ? 'designer' : itemId);
+}
 
 const featureCards = [
   {
@@ -259,14 +271,36 @@ function formatCurrency(value) {
   }).format(value);
 }
 
+const AUTH_PAGES = new Set(['login', 'register', 'forgot', 'reset']);
+const PORTAL_PAGES = new Set([
+  'dashboard',
+  'admin',
+  'estimator',
+  'floorplanner',
+  'designer',
+  'prediction',
+  'materials',
+  'marketplace',
+  'product',
+  'calculator',
+  'cart',
+  'orders',
+  'order',
+  'repairs',
+  'repair-project',
+  'supplier',
+  'provider',
+  'projects',
+]);
+
 function App() {
   const { user, ready } = useAuth();
   const initial = pageFromPath(window.location.pathname);
   const [page, setPageState] = useState(initial.page);
   const [routeSlug, setRouteSlug] = useState(initial.slug);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
-  const authPages = new Set(['login', 'register', 'forgot', 'reset']);
-  const inWorkspace = Boolean(user) && !authPages.has(page);
+  const inAuth = AUTH_PAGES.has(page);
+  const inWorkspace = Boolean(user) && PORTAL_PAGES.has(page);
 
   const setPage = (next, slug = '') => {
     const path = pathFor(next, slug);
@@ -289,7 +323,7 @@ function App() {
 
   useEffect(() => {
     if (!ready || !user) return undefined;
-    if (page === 'home' || page === 'login' || page === 'register') setPage('dashboard');
+    if (page === 'login' || page === 'register') setPage('dashboard');
     return undefined;
   }, [ready, user, page]);
 
@@ -348,7 +382,7 @@ function App() {
       case 'register':
         return <RegisterPage setPage={setPage} />;
       case 'forgot':
-        return <ForgotPage />;
+        return <ForgotPage setPage={setPage} />;
       case 'reset':
         return <ResetPage setPage={setPage} />;
       default:
@@ -362,6 +396,10 @@ function App() {
     </Suspense>
   );
 
+  if (inAuth) {
+    return content;
+  }
+
   if (inWorkspace) {
     return <WorkspaceShell page={page} setPage={setPage}>{content}</WorkspaceShell>;
   }
@@ -370,6 +408,113 @@ function App() {
     <div className="min-h-screen bg-[#F5F7FA] text-[#1F2937]">
       <Header page={page} setPage={setPage} mobileNavOpen={mobileNavOpen} setMobileNavOpen={setMobileNavOpen} />
       {content}
+    </div>
+  );
+}
+
+function MoreNavMenu({ page, onNavigate }) {
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef(null);
+  const closeTimer = useRef(null);
+  const hoverOpened = useRef(false);
+  const moreActive = moreNavItems.some((item) => isNavActive(page, item.id));
+
+  const clearCloseTimer = () => {
+    if (closeTimer.current) {
+      clearTimeout(closeTimer.current);
+      closeTimer.current = null;
+    }
+  };
+
+  const openMenu = () => {
+    clearCloseTimer();
+    setOpen(true);
+  };
+
+  const closeMenu = () => {
+    clearCloseTimer();
+    hoverOpened.current = false;
+    setOpen(false);
+  };
+
+  const scheduleClose = () => {
+    clearCloseTimer();
+    hoverOpened.current = false;
+    closeTimer.current = setTimeout(() => setOpen(false), 140);
+  };
+
+  useEffect(() => () => clearCloseTimer(), []);
+
+  useEffect(() => {
+    if (!open) return undefined;
+    const onPointerDown = (event) => {
+      if (!rootRef.current?.contains(event.target)) closeMenu();
+    };
+    const onKeyDown = (event) => {
+      if (event.key === 'Escape') closeMenu();
+    };
+    document.addEventListener('mousedown', onPointerDown);
+    document.addEventListener('keydown', onKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', onPointerDown);
+      document.removeEventListener('keydown', onKeyDown);
+    };
+  }, [open]);
+
+  return (
+    <div
+      ref={rootRef}
+      className="relative"
+      onMouseEnter={() => {
+        hoverOpened.current = true;
+        openMenu();
+      }}
+      onMouseLeave={scheduleClose}
+    >
+      <button
+        type="button"
+        aria-expanded={open}
+        aria-haspopup="menu"
+        onClick={() => {
+          clearCloseTimer();
+          if (hoverOpened.current) {
+            setOpen(true);
+            return;
+          }
+          setOpen((wasOpen) => !wasOpen);
+        }}
+        className={`inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-full px-2.5 py-1.5 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-orange xl:px-3 ${moreActive || open ? 'bg-orange-50 font-semibold text-brand-orange' : 'hover:bg-slate-50 hover:text-brand-orange'}`}
+      >
+        More
+        <ChevronDown className={`h-3.5 w-3.5 transition-transform duration-200 ${open ? 'rotate-180' : ''}`} aria-hidden="true" />
+      </button>
+      {open && (
+        <div
+          role="menu"
+          className="absolute left-1/2 top-full z-50 pt-1 min-w-[11rem] -translate-x-1/2"
+        >
+          <div className="rounded-xl border border-slate-200/90 bg-white py-1.5 shadow-[0_18px_40px_-24px_rgba(15,23,42,0.55)]">
+            {moreNavItems.map((item) => {
+              const active = isNavActive(page, item.id);
+              return (
+                <button
+                  key={item.id}
+                  type="button"
+                  role="menuitem"
+                  aria-current={active ? 'page' : undefined}
+                  onClick={() => {
+                    closeMenu();
+                    onNavigate(item.id);
+                  }}
+                  className={`flex w-full items-center px-3.5 py-2.5 text-left text-sm transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand-orange ${active ? 'bg-orange-50 font-semibold text-brand-orange' : 'text-slate-700 hover:bg-slate-50 hover:text-brand-orange'}`}
+                >
+                  {item.label}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -400,59 +545,27 @@ function Header({ page, setPage, mobileNavOpen, setMobileNavOpen }) {
     setMobileNavOpen(false);
   };
 
+  const navLinkClass = (active) =>
+    `shrink-0 whitespace-nowrap rounded-full px-2.5 py-1.5 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-orange xl:px-3 ${active ? 'bg-orange-50 font-semibold text-brand-orange' : 'hover:bg-slate-50 hover:text-brand-orange'}`;
+
   return (
-    <header className="sticky top-0 z-50 border-b border-slate-200/70 bg-white/90 shadow-[0_8px_30px_-18px_rgba(15,23,42,0.35)] backdrop-blur-md">
-      <div className="mx-auto flex h-16 max-w-7xl items-center gap-3 px-4 sm:h-[4.25rem] sm:px-6 lg:gap-4 lg:px-8">
-        <button onClick={() => { setPage('home'); setMobileNavOpen(false); }} aria-label="BuildRight home" className="flex shrink-0 items-center gap-2.5 rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-orange focus-visible:ring-offset-2">
-          <span className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-slate-50 ring-1 ring-slate-200/80">
-            <img src="/logoB.png" alt="" width="500" height="500" className="h-10 w-10 object-cover object-top" />
-          </span>
-          <span className="flex items-baseline gap-2 whitespace-nowrap text-left">
-            <span className="text-lg font-black tracking-tight text-[#101828]">BuildRight</span>
-            <span className="hidden text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400 xl:inline">Smart planning</span>
-          </span>
-        </button>
-
-        <nav className="hidden min-w-0 flex-1 items-center justify-end gap-0.5 overflow-x-auto text-[12px] font-medium text-slate-600 lg:flex xl:gap-1 xl:text-[13px]">
-          {navItems.map((item) => {
-            const active = page === (item.id === 'design' ? 'designer' : item.id);
-            return (
-              <button
-                key={item.id}
-                type="button"
-                title={item.title || item.label}
-                aria-current={active ? 'page' : undefined}
-                onClick={() => go(item.id)}
-                className={`shrink-0 whitespace-nowrap rounded-full px-2 py-1.5 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-orange xl:px-3 ${active ? 'bg-orange-50 font-semibold text-brand-orange' : 'hover:bg-slate-50 hover:text-brand-orange'}`}
-              >
-                {item.label}
-              </button>
-            );
-          })}
-        </nav>
-
-        <div className="hidden shrink-0 items-center gap-2 md:flex">
-          {user ? <button type="button" onClick={() => { setPage('dashboard'); setMobileNavOpen(false); }} className="max-w-[7.5rem] truncate whitespace-nowrap rounded-full border border-slate-200 bg-white px-3.5 py-2 text-sm font-semibold text-slate-800 shadow-sm transition hover:border-orange-200">{user.name.split(' ')[0]}</button> : <button type="button" onClick={() => { setPage('login'); setMobileNavOpen(false); }} className="whitespace-nowrap rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 shadow-sm transition hover:border-orange-200">Sign In</button>}
-          {user?.role === 'admin' && <button type="button" onClick={() => { setPage('admin'); setMobileNavOpen(false); }} className="whitespace-nowrap rounded-full border border-slate-200 px-3.5 py-2 text-sm font-semibold text-slate-700 shadow-sm">Admin</button>}
-          {user?.role === 'supplier' && <button type="button" onClick={() => { setPage('supplier'); setMobileNavOpen(false); }} className="whitespace-nowrap rounded-full border border-slate-200 px-3.5 py-2 text-sm font-semibold text-slate-700 shadow-sm">Supplier</button>}
-          {user?.role === 'provider' && <button type="button" onClick={() => { setPage('provider'); setMobileNavOpen(false); }} className="whitespace-nowrap rounded-full border border-slate-200 px-3.5 py-2 text-sm font-semibold text-slate-700 shadow-sm">Requests</button>}
-          <button type="button" onClick={() => { setPage('cart'); setMobileNavOpen(false); }} className="whitespace-nowrap rounded-full border border-slate-200 px-3.5 py-2 text-sm font-semibold text-slate-700 shadow-sm transition hover:border-orange-200">Cart{count ? ` (${count})` : ''}</button>
-          <button type="button" onClick={() => go('estimator')} className="hidden whitespace-nowrap rounded-full bg-brand-orange px-5 py-2 text-sm font-semibold text-white shadow-[0_10px_24px_-10px_rgba(255,117,24,0.9)] transition hover:-translate-y-0.5 hover:bg-orange-600 active:scale-[0.98] xl:inline-flex">Get Started</button>
-        </div>
-
-        <div className="ml-auto flex shrink-0 items-center gap-2 lg:ml-0 lg:hidden">
-          <button type="button" onClick={() => { setPage('cart'); setMobileNavOpen(false); }} className="whitespace-nowrap rounded-full border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700 md:hidden">Cart{count ? ` (${count})` : ''}</button>
-          <button type="button" aria-label={mobileNavOpen ? 'Close navigation menu' : 'Open navigation menu'} aria-expanded={mobileNavOpen} className="rounded-xl border border-slate-200 p-2.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-orange" onClick={() => setMobileNavOpen(!mobileNavOpen)}>
-            {mobileNavOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
+    <div className="sticky top-0 z-50">
+      <RatesTicker onOpenCatalog={() => { setPage('materials'); setMobileNavOpen(false); }} />
+      <header className="border-b border-slate-200/70 bg-white/90 shadow-[0_8px_30px_-18px_rgba(15,23,42,0.35)] backdrop-blur-md">
+        <div className="mx-auto flex h-16 max-w-7xl items-center gap-3 px-4 sm:h-[4.25rem] sm:px-6 lg:gap-5 lg:px-8">
+          <button onClick={() => { setPage('home'); setMobileNavOpen(false); }} aria-label="BuildRight home" className="flex shrink-0 items-center gap-2.5 rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-orange focus-visible:ring-offset-2">
+            <span className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-slate-50 ring-1 ring-slate-200/80">
+              <img src="/logoB.png" alt="" width="500" height="500" className="h-10 w-10 object-cover object-top" />
+            </span>
+            <span className="flex min-w-0 items-baseline gap-2 text-left">
+              <span className="text-lg font-black tracking-tight text-[#101828]">BuildRight</span>
+              <span className="hidden text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400 2xl:inline">Smart planning</span>
+            </span>
           </button>
-        </div>
-      </div>
 
-      {mobileNavOpen && (
-        <div className="max-h-[min(70vh,32rem)] overflow-y-auto border-t border-slate-200 bg-white/98 px-4 py-4 shadow-lg lg:hidden">
-          <div className="mx-auto grid max-w-7xl gap-1 text-sm text-slate-700 sm:grid-cols-2">
-            {navItems.map((item) => {
-              const active = page === (item.id === 'design' ? 'designer' : item.id);
+          <nav className="hidden min-w-0 flex-1 items-center justify-center gap-0.5 text-[12.5px] font-medium text-slate-600 lg:flex xl:gap-1 xl:text-[13px]" aria-label="Primary">
+            {primaryNavItems.map((item) => {
+              const active = isNavActive(page, item.id);
               return (
                 <button
                   key={item.id}
@@ -460,20 +573,77 @@ function Header({ page, setPage, mobileNavOpen, setMobileNavOpen }) {
                   title={item.title || item.label}
                   aria-current={active ? 'page' : undefined}
                   onClick={() => go(item.id)}
-                  className={`whitespace-nowrap rounded-xl px-3 py-2.5 text-left font-medium transition hover:bg-orange-50 hover:text-brand-orange focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-orange ${active ? 'bg-orange-50 text-brand-orange' : ''}`}
+                  className={navLinkClass(active)}
                 >
-                  {item.title || item.label}
+                  {item.label}
                 </button>
               );
             })}
-          </div>
-          <div className="mx-auto mt-4 flex max-w-7xl flex-col gap-2 sm:flex-row">
-            <button type="button" onClick={() => { setPage(user ? 'dashboard' : 'login'); setMobileNavOpen(false); }} className="flex-1 rounded-2xl border border-slate-200 px-4 py-3 text-sm font-semibold">{user ? 'Dashboard' : 'Sign In'}</button>
-            <button type="button" onClick={() => go('estimator')} className="flex-1 rounded-2xl bg-brand-orange px-4 py-3 text-sm font-semibold text-white">Get Started</button>
+            <MoreNavMenu page={page} onNavigate={go} />
+          </nav>
+
+          <div className="ml-auto flex shrink-0 items-center gap-2">
+            <div className="hidden items-center gap-2 md:flex">
+              {user ? <button type="button" onClick={() => { setPage('dashboard'); setMobileNavOpen(false); }} className="max-w-[7.5rem] truncate whitespace-nowrap rounded-full border border-slate-200 bg-white px-3.5 py-2 text-sm font-semibold text-slate-800 shadow-sm transition hover:border-orange-200">{user.name.split(' ')[0]}</button> : <button type="button" onClick={() => { setPage('login'); setMobileNavOpen(false); }} className="whitespace-nowrap rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 shadow-sm transition hover:border-orange-200">Sign In</button>}
+              {user?.role === 'admin' && <button type="button" onClick={() => { setPage('admin'); setMobileNavOpen(false); }} className="whitespace-nowrap rounded-full border border-slate-200 px-3.5 py-2 text-sm font-semibold text-slate-700 shadow-sm">Admin</button>}
+              {user?.role === 'supplier' && <button type="button" onClick={() => { setPage('supplier'); setMobileNavOpen(false); }} className="whitespace-nowrap rounded-full border border-slate-200 px-3.5 py-2 text-sm font-semibold text-slate-700 shadow-sm">Supplier</button>}
+              {user?.role === 'provider' && <button type="button" onClick={() => { setPage('provider'); setMobileNavOpen(false); }} className="whitespace-nowrap rounded-full border border-slate-200 px-3.5 py-2 text-sm font-semibold text-slate-700 shadow-sm">Requests</button>}
+              <button type="button" onClick={() => { setPage('cart'); setMobileNavOpen(false); }} className="whitespace-nowrap rounded-full border border-slate-200 px-3.5 py-2 text-sm font-semibold text-slate-700 shadow-sm transition hover:border-orange-200">Cart{count ? ` (${count})` : ''}</button>
+              <button type="button" onClick={() => { setPage(user ? 'dashboard' : 'estimator'); setMobileNavOpen(false); }} className="hidden whitespace-nowrap rounded-full bg-brand-orange px-5 py-2 text-sm font-semibold text-white shadow-[0_10px_24px_-10px_rgba(255,117,24,0.9)] transition hover:-translate-y-0.5 hover:bg-orange-600 active:scale-[0.98] xl:inline-flex">{user ? 'Open portal' : 'Get Started'}</button>
+            </div>
+            <button type="button" onClick={() => { setPage('cart'); setMobileNavOpen(false); }} className="whitespace-nowrap rounded-full border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700 md:hidden">Cart{count ? ` (${count})` : ''}</button>
+            <button type="button" aria-label={mobileNavOpen ? 'Close navigation menu' : 'Open navigation menu'} aria-expanded={mobileNavOpen} className="rounded-xl border border-slate-200 p-2.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-orange lg:hidden" onClick={() => setMobileNavOpen(!mobileNavOpen)}>
+              {mobileNavOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
+            </button>
           </div>
         </div>
-      )}
-    </header>
+
+        {mobileNavOpen && (
+          <div className="max-h-[min(70vh,32rem)] overflow-y-auto border-t border-slate-200 bg-white/98 px-4 py-4 shadow-lg lg:hidden">
+            <div className="mx-auto grid max-w-7xl gap-1 text-sm text-slate-700 sm:grid-cols-2">
+              {primaryNavItems.map((item) => {
+                const active = isNavActive(page, item.id);
+                return (
+                  <button
+                    key={item.id}
+                    type="button"
+                    title={item.title || item.label}
+                    aria-current={active ? 'page' : undefined}
+                    onClick={() => go(item.id)}
+                    className={`whitespace-nowrap rounded-xl px-3 py-2.5 text-left font-medium transition hover:bg-orange-50 hover:text-brand-orange focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-orange ${active ? 'bg-orange-50 text-brand-orange' : ''}`}
+                  >
+                    {item.title || item.label}
+                  </button>
+                );
+              })}
+            </div>
+            <div className="mx-auto mt-3 max-w-7xl border-t border-slate-100 pt-3">
+              <p className="px-3 pb-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400">More</p>
+              <div className="grid gap-1 sm:grid-cols-2">
+                {moreNavItems.map((item) => {
+                  const active = isNavActive(page, item.id);
+                  return (
+                    <button
+                      key={item.id}
+                      type="button"
+                      aria-current={active ? 'page' : undefined}
+                      onClick={() => go(item.id)}
+                      className={`whitespace-nowrap rounded-xl px-3 py-2.5 text-left text-sm font-medium transition hover:bg-orange-50 hover:text-brand-orange focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-orange ${active ? 'bg-orange-50 text-brand-orange' : 'text-slate-700'}`}
+                    >
+                      {item.label}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+            <div className="mx-auto mt-4 flex max-w-7xl flex-col gap-2 sm:flex-row">
+              <button type="button" onClick={() => { setPage(user ? 'dashboard' : 'login'); setMobileNavOpen(false); }} className="flex-1 rounded-2xl border border-slate-200 px-4 py-3 text-sm font-semibold">{user ? 'Dashboard' : 'Sign In'}</button>
+              <button type="button" onClick={() => go('estimator')} className="flex-1 rounded-2xl bg-brand-orange px-4 py-3 text-sm font-semibold text-white">Get Started</button>
+            </div>
+          </div>
+        )}
+      </header>
+    </div>
   );
 }
 
@@ -1079,15 +1249,15 @@ function EstimatorPage() {
         {currentStep === 1 && (
           <div className="grid gap-5 md:grid-cols-2">
             <Field label="Project Name"><input value={form.projectName} onChange={(e) => setField('projectName', e.target.value)} className="input" /></Field>
-            <Field label="Location"><select value={form.location} onChange={(e) => setField('location', e.target.value)} className="input"><option>{cities.join()}</option>{cities.map(city => <option key={city}>{city}</option>)}</select></Field>
-            <Field label="Building Type"><select value={form.buildingType} onChange={(e) => setField('buildingType', e.target.value)} className="input">{buildingTypes.map(type => <option key={type}>{type}</option>)}</select></Field>
-            <Field label="Construction Type"><select value={form.constructionType} onChange={(e) => setField('constructionType', e.target.value)} className="input"><option>Grey Structure</option><option>Complete Construction</option><option>Renovation</option><option>Custom Project</option></select></Field>
+            <Field label="Location"><SearchableSelect value={form.location} onChange={(next) => setField('location', next)} options={cities} /></Field>
+            <Field label="Building Type"><SearchableSelect value={form.buildingType} onChange={(next) => setField('buildingType', next)} options={buildingTypes} /></Field>
+            <Field label="Construction Type"><SearchableSelect value={form.constructionType} onChange={(next) => setField('constructionType', next)} options={['Grey Structure', 'Complete Construction', 'Renovation', 'Custom Project']} /></Field>
           </div>
         )}
 
         {currentStep === 2 && (
           <div className="grid gap-5 md:grid-cols-2">
-            <Field label="Plot Area"><div className="flex items-center gap-2"><input type="number" value={form.plotArea} onChange={(e) => setField('plotArea', Number(e.target.value))} className="input" /><select value={form.unit} onChange={(e) => setField('unit', e.target.value)} className="input w-28"><option>sq ft</option><option>Marla</option><option>Kanal</option></select></div></Field>
+            <Field label="Plot Area"><div className="flex items-center gap-2"><input type="number" value={form.plotArea} onChange={(e) => setField('plotArea', Number(e.target.value))} className="input" /><SearchableSelect className="w-28" value={form.unit} onChange={(next) => setField('unit', next)} options={['sq ft', 'Marla', 'Kanal']} /></div></Field>
             <Field label="Number of Floors"><input type="number" value={form.floors} onChange={(e) => setField('floors', Number(e.target.value))} className="input" /></Field>
             <Field label="Covered Area per Floor"><input type="number" value={form.coveredArea} onChange={(e) => setField('coveredArea', Number(e.target.value))} className="input" /></Field>
             <Field label="Plot Dimensions (L x W)"><div className="flex items-center gap-2"><input type="number" value={form.length} onChange={(e) => setField('length', Number(e.target.value))} className="input" /><input type="number" value={form.width} onChange={(e) => setField('width', Number(e.target.value))} className="input" /></div></Field>
@@ -1293,9 +1463,7 @@ function FloorPlannerPage() {
           <div className="mb-4 text-sm font-semibold uppercase tracking-[0.18em] text-slate-500">Project</div>
           <label className="block">
             <span className="mb-2 block text-sm font-medium text-slate-700">Building Type</span>
-            <select value={buildingType} onChange={(e) => setBuildingType(e.target.value)} className="input">
-              {['House', 'Plaza', 'Shop', 'University', 'Office', 'Commercial Building'].map((type) => <option key={type}>{type}</option>)}
-            </select>
+            <SearchableSelect value={buildingType} onChange={setBuildingType} options={['House', 'Plaza', 'Shop', 'University', 'Office', 'Commercial Building']} />
           </label>
           <div className="mt-6 grid grid-cols-2 gap-3">
             <label className="block"><span className="mb-2 block text-sm text-slate-700">Plot width</span><input type="number" defaultValue={42} className="input" /></label>
@@ -1348,9 +1516,7 @@ function FloorPlannerPage() {
             <div className="space-y-4">
               <label className="block">
                 <span className="mb-2 block text-sm font-medium text-slate-700">Room Type</span>
-                <select value={selectedRoom.type} onChange={(e) => updateRoom({ type: e.target.value })} className="input">
-                  {roomKinds.map((type) => <option key={type}>{type}</option>)}
-                </select>
+                <SearchableSelect value={selectedRoom.type} onChange={(next) => updateRoom({ type: next })} options={roomKinds} />
               </label>
 
               <label className="block">
@@ -1414,16 +1580,14 @@ function DesignerPage() {
           <div className="space-y-5">
             <label className="block">
               <span className="mb-2 block text-sm font-semibold text-slate-700">Building Type</span>
-              <select value={settings.buildingType} onChange={(e) => setSettings({ ...settings, buildingType: e.target.value })} className="input">
-                {['House', 'Plaza', 'Shop', 'University', 'Office', 'Commercial Building'].map((type) => <option key={type}>{type}</option>)}
-              </select>
+              <SearchableSelect value={settings.buildingType} onChange={(next) => setSettings({ ...settings, buildingType: next })} options={['House', 'Plaza', 'Shop', 'University', 'Office', 'Commercial Building']} />
             </label>
 
             <div className="grid grid-cols-2 gap-3">
               <label className="block"><span className="mb-2 block text-sm text-slate-700">Width</span><input type="number" value={settings.width} onChange={(e) => setSettings({ ...settings, width: Number(e.target.value) })} className="input" /></label>
               <label className="block"><span className="mb-2 block text-sm text-slate-700">Depth</span><input type="number" value={settings.depth} onChange={(e) => setSettings({ ...settings, depth: Number(e.target.value) })} className="input" /></label>
               <label className="block"><span className="mb-2 block text-sm text-slate-700">Floors</span><input type="number" value={settings.floors} onChange={(e) => setSettings({ ...settings, floors: Number(e.target.value) })} className="input" /></label>
-              <label className="block"><span className="mb-2 block text-sm text-slate-700">Preset</span><select value={settings.preset} onChange={(e) => setSettings({ ...settings, preset: e.target.value, wallColor: presetColors[e.target.value] || settings.wallColor })} className="input"><option>Modern</option><option>Contemporary</option><option>Traditional</option><option>Minimalist</option></select></label>
+              <label className="block"><span className="mb-2 block text-sm text-slate-700">Preset</span><SearchableSelect value={settings.preset} onChange={(next) => setSettings({ ...settings, preset: next, wallColor: presetColors[next] || settings.wallColor })} options={['Modern', 'Contemporary', 'Traditional', 'Minimalist']} /></label>
             </div>
 
             <label className="block">
@@ -1433,20 +1597,12 @@ function DesignerPage() {
 
             <label className="block">
               <span className="mb-2 block text-sm font-semibold text-slate-700">Roof Style</span>
-              <select value={settings.roofStyle} onChange={(e) => setSettings({ ...settings, roofStyle: e.target.value })} className="input">
-                <option>Flat</option>
-                <option>Hip</option>
-                <option>Gable</option>
-              </select>
+              <SearchableSelect value={settings.roofStyle} onChange={(next) => setSettings({ ...settings, roofStyle: next })} options={['Flat', 'Hip', 'Gable']} />
             </label>
 
             <label className="block">
               <span className="mb-2 block text-sm font-semibold text-slate-700">Window Style</span>
-              <select value={settings.windowStyle} onChange={(e) => setSettings({ ...settings, windowStyle: e.target.value })} className="input">
-                <option>Large</option>
-                <option>Sliding</option>
-                <option>Minimal</option>
-              </select>
+              <SearchableSelect value={settings.windowStyle} onChange={(next) => setSettings({ ...settings, windowStyle: next })} options={['Large', 'Sliding', 'Minimal']} />
             </label>
           </div>
         </div>
@@ -1545,9 +1701,9 @@ function PredictionPage() {
         <div className="rounded-[2rem] border border-slate-200 bg-white p-5 shadow-soft">
           <div className="space-y-5">
             <Field label="Project Area"><input type="number" value={area} onChange={(e) => setArea(Number(e.target.value))} className="input" /></Field>
-            <Field label="Location"><select value={location} onChange={(e) => setLocation(e.target.value)} className="input">{cities.map((city) => <option key={city}>{city}</option>)}</select></Field>
-            <Field label="Building Type"><select value={buildingType} onChange={(e) => setBuildingType(e.target.value)} className="input">{buildingTypes.map((type) => <option key={type}>{type}</option>)}</select></Field>
-            <Field label="Material Quality"><select value={quality} onChange={(e) => setQuality(e.target.value)} className="input"><option>Standard</option><option>Premium</option><option>Luxury</option></select></Field>
+            <Field label="Location"><SearchableSelect value={location} onChange={setLocation} options={cities} /></Field>
+            <Field label="Building Type"><SearchableSelect value={buildingType} onChange={setBuildingType} options={buildingTypes} /></Field>
+            <Field label="Material Quality"><SearchableSelect value={quality} onChange={setQuality} options={['Standard', 'Premium', 'Luxury']} /></Field>
             <Field label="Construction Year"><input type="number" value={year} onChange={(e) => setYear(Number(e.target.value))} className="input" /></Field>
           </div>
         </div>
@@ -1668,12 +1824,13 @@ function MaterialMarketplacePage() {
             ))}
           </div>
 
-          <select value={sortBy} onChange={(e) => setSortBy(e.target.value)} className="rounded-full border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 outline-none">
-            <option>Recommended</option>
-            <option>Price: Low to High</option>
-            <option>Price: High to Low</option>
-            <option>Quality</option>
-          </select>
+          <SearchableSelect
+            className="w-52"
+            triggerClassName="!rounded-full !border-slate-200 !bg-white !px-4 !py-2.5 !text-sm !font-medium !text-slate-700"
+            value={sortBy}
+            onChange={setSortBy}
+            options={['Recommended', 'Price: Low to High', 'Price: High to Low', 'Quality']}
+          />
         </div>
 
         <div className="mt-8 grid gap-5 md:grid-cols-2 xl:grid-cols-3">

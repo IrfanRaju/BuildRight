@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from 'recharts';
 import { api, money } from '../lib/api';
 import { useAuth } from '../context/AuthContext';
-import { EmptyState, Field, Notice, PageHeader, buttonClass, ghostClass } from '../components/ui';
+import { EmptyState, Field, Notice, PageHeader, SearchableSelect, buttonClass, ghostClass } from '../components/ui';
 
 const cities = ['Islamabad', 'Rawalpindi', 'Lahore', 'Karachi', 'Peshawar', 'Multan', 'Faisalabad', 'Gilgit', 'Skardu', 'Hunza', 'Gilgit-Baltistan'];
 const qualities = [
@@ -183,16 +183,16 @@ export default function EstimatorPage({ setPage }) {
         {step === 1 && (
           <div className="grid gap-5 md:grid-cols-2">
             <Field label="Project name"><input className="input" value={form.projectName} onChange={(event) => setField('projectName', event.target.value)} /></Field>
-            <Field label="City"><select className="input" value={form.location} onChange={(event) => setField('location', event.target.value)}>{cities.map((city) => <option key={city}>{city}</option>)}</select></Field>
-            <Field label="Project type"><select className="input" value={form.projectType} onChange={(event) => setField('projectType', event.target.value)}>{['House', 'Villa', 'Apartment', 'Plaza', 'Shop', 'Office', 'School', 'Hospital', 'Renovation'].map((type) => <option key={type}>{type}</option>)}</select></Field>
-            <Field label="Construction category"><select className="input" value={form.category} onChange={(event) => setField('category', event.target.value)}>{categories.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select></Field>
+            <Field label="City"><SearchableSelect value={form.location} onChange={(next) => setField('location', next)} options={cities} /></Field>
+            <Field label="Project type"><SearchableSelect value={form.projectType} onChange={(next) => setField('projectType', next)} options={['House', 'Villa', 'Apartment', 'Plaza', 'Shop', 'Office', 'School', 'Hospital', 'Renovation']} /></Field>
+            <Field label="Construction category"><SearchableSelect value={form.category} onChange={(next) => setField('category', next)} options={categories.map((item) => ({ value: item.id, label: item.label }))} /></Field>
           </div>
         )}
 
         {step === 2 && (
           <div className="grid gap-5 md:grid-cols-2">
-            <Field label="Plot area"><div className="flex gap-2"><input className="input" type="number" min="1" value={form.plotArea} onChange={(event) => setField('plotArea', Number(event.target.value))} /><select className="input w-32" value={form.plotUnit} onChange={(event) => setField('plotUnit', event.target.value)}><option>marla</option><option>kanal</option><option>sq ft</option><option>sq m</option></select></div></Field>
-            <Field label="Covered area per floor"><div className="flex gap-2"><input className="input" type="number" min="1" value={form.coveredArea} onChange={(event) => setField('coveredArea', Number(event.target.value))} /><select className="input w-32" value={form.coveredUnit} onChange={(event) => setField('coveredUnit', event.target.value)}><option>sq ft</option><option>sq m</option><option>marla</option></select></div></Field>
+            <Field label="Plot area"><div className="flex gap-2"><input className="input" type="number" min="1" value={form.plotArea} onChange={(event) => setField('plotArea', Number(event.target.value))} /><SearchableSelect className="w-32" value={form.plotUnit} onChange={(next) => setField('plotUnit', next)} options={['marla', 'kanal', 'sq ft', 'sq m']} /></div></Field>
+            <Field label="Covered area per floor"><div className="flex gap-2"><input className="input" type="number" min="1" value={form.coveredArea} onChange={(event) => setField('coveredArea', Number(event.target.value))} /><SearchableSelect className="w-32" value={form.coveredUnit} onChange={(next) => setField('coveredUnit', next)} options={['sq ft', 'sq m', 'marla']} /></div></Field>
             <Field label="Floors"><input className="input" type="number" min="1" max="40" value={form.floors} onChange={(event) => setField('floors', Number(event.target.value))} /></Field>
             <Field label="Structure"><input className="input" value={form.structureType} onChange={(event) => setField('structureType', event.target.value)} /></Field>
           </div>

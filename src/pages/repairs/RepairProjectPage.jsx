@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from 'recharts';
 import { api, money } from '../../lib/api';
 import { compressImage, drawColorConcept } from '../../lib/images';
-import { Notice, PageHeader, buttonClass, ghostClass } from '../../components/ui';
+import { Notice, PageHeader, SearchableSelect, buttonClass, ghostClass } from '../../components/ui';
 
 export default function RepairProjectPage({ projectId, setPage }) {
   const [data, setData] = useState(null);
@@ -106,8 +106,8 @@ export default function RepairProjectPage({ projectId, setPage }) {
         <p className="mt-1 text-sm text-slate-600">{previewNote}</p>
         <div className="mt-4 flex flex-wrap items-center gap-3">
           <label className="text-sm font-semibold">Color <input type="color" value={color} onChange={(event) => setColor(event.target.value)} /></label>
-          <select className="input w-40" value={style} onChange={(event) => setStyle(event.target.value)}>{['Modern', 'Traditional', 'Minimal', 'Warm', 'Cool'].map((item) => <option key={item}>{item}</option>)}</select>
-          <select className="input w-40" value={finish} onChange={(event) => setFinish(event.target.value)}>{['Matte', 'Satin', 'Gloss', 'Textured', 'Stone'].map((item) => <option key={item}>{item}</option>)}</select>
+          <SearchableSelect className="w-40" value={style} onChange={setStyle} options={['Modern', 'Traditional', 'Minimal', 'Warm', 'Cool']} />
+          <SearchableSelect className="w-40" value={finish} onChange={setFinish} options={['Matte', 'Satin', 'Gloss', 'Textured', 'Stone']} />
           <button type="button" className={ghostClass} onClick={() => api(`/api/repairs/projects/${projectId}/preview`, { method: 'POST', body: { color, style, finish, surface: 'room' } }).then((result) => setPreviewNote(result.preview.message)).catch((requestError) => setError(requestError.message))}>Request AI concept</button>
         </div>
         <p className="mt-2 text-xs text-slate-500">{data.preview?.configured ? 'An image service is configured. It receives the color and style, not your photograph.' : 'Image generation is not configured, so only the local color concept is available.'}</p>

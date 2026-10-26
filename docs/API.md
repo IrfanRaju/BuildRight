@@ -108,7 +108,7 @@ Catalog prices are administrator-managed or supplier-verified and are labeled wi
 
 ## Catalog, dashboard, and admin
 
-- `GET /api/materials`, `GET /api/labor-rates`, `GET /api/contractors`, `GET /api/articles`, `GET /api/articles/:slug`
+- `GET /api/materials`, `GET /api/materials/ticker` (public city × material rates for the navbar ticker; resolved from `MaterialRate` + `RegionalRate`), `GET /api/labor-rates`, `GET /api/contractors`, `GET /api/articles`, `GET /api/articles/:slug`
 - `POST /api/contact`
 - `GET /api/dashboard` includes projects, estimates, designs, orders, and repair projects for the signed-in user
 - `GET /api/health`

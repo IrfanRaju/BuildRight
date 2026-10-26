@@ -3,7 +3,7 @@ import { api, money } from '../../lib/api';
 import { useAuth } from '../../context/AuthContext';
 import { useCart } from '../../context/CartContext';
 import { deliveryCharge, distanceForCity } from '../../../shared/commerce.js';
-import { EmptyState, Field, Notice, buttonClass, ghostClass } from '../../components/ui';
+import { EmptyState, Field, Notice, SearchableSelect, buttonClass, ghostClass } from '../../components/ui';
 
 export default function CartPage({ setPage }) {
   const { user } = useAuth();
@@ -212,18 +212,15 @@ export default function CartPage({ setPage }) {
                   <fieldset disabled={!user} className="mt-3 grid gap-3 disabled:opacity-55">
                     <div className="grid gap-3 sm:grid-cols-2">
                       <Field label="City">
-                        <select
-                          className="input"
+                        <SearchableSelect
                           value={city}
-                          onChange={(event) => {
-                            const next = event.target.value;
+                          onChange={(next) => {
                             setCity(next);
                             setDistance(distanceForCity(next, settings));
                             setAddress({ ...address, city: next });
                           }}
-                        >
-                          {Object.keys(settings.cityDistancesKm || { Islamabad: 8 }).map((name) => <option key={name}>{name}</option>)}
-                        </select>
+                          options={Object.keys(settings.cityDistancesKm || { Islamabad: 8 })}
+                        />
                       </Field>
                       <Field label="Distance (km)">
                         <input className="input" type="number" min="0" value={distance} onChange={(event) => setDistance(Number(event.target.value))} />

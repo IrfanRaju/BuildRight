@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Bar, BarChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { api, money } from '../../lib/api';
-import { Notice, buttonClass } from '../../components/ui';
+import { Notice, SearchableSelect, buttonClass } from '../../components/ui';
 
 export default function CommerceAdmin({ tab }) {
   const [error, setError] = useState('');
@@ -54,9 +54,9 @@ export default function CommerceAdmin({ tab }) {
           <form className="grid gap-2 rounded-3xl bg-white p-4 md:grid-cols-3" onSubmit={(event) => { event.preventDefault(); api('/api/marketplace/products', { method: 'POST', body: product }).then(() => { setProduct({ ...product, sku: '', name: '' }); load(); }).catch((requestError) => setError(requestError.message)); }}>
             <input className="input" placeholder="SKU" value={product.sku} onChange={(event) => setProduct({ ...product, sku: event.target.value })} required />
             <input className="input" placeholder="Product name" value={product.name} onChange={(event) => setProduct({ ...product, name: event.target.value })} required />
-            <select className="input" value={product.categorySlug} onChange={(event) => setProduct({ ...product, categorySlug: event.target.value })}>{categories.map((item) => <option key={item.slug} value={item.slug}>{item.name}</option>)}</select>
+            <SearchableSelect value={product.categorySlug} onChange={(next) => setProduct({ ...product, categorySlug: next })} options={categories.map((item) => ({ value: item.slug, label: item.name }))} />
             <input className="input" placeholder="Brand" value={product.brand} onChange={(event) => setProduct({ ...product, brand: event.target.value })} />
-            <select className="input" value={product.unit} onChange={(event) => setProduct({ ...product, unit: event.target.value })}>{['bag', 'piece', 'kg', 'ton', 'liter', 'meter', 'sq ft', 'cft'].map((unit) => <option key={unit}>{unit}</option>)}</select>
+            <SearchableSelect value={product.unit} onChange={(next) => setProduct({ ...product, unit: next })} options={['bag', 'piece', 'kg', 'ton', 'liter', 'meter', 'sq ft', 'cft']} />
             <input className="input" type="number" min="0" placeholder="Price PKR" value={product.pricePkr} onChange={(event) => setProduct({ ...product, pricePkr: Number(event.target.value) })} />
             <input className="input" type="number" min="0" placeholder="Stock" value={product.stock} onChange={(event) => setProduct({ ...product, stock: Number(event.target.value) })} />
             <input className="input" placeholder="Supplier" value={product.supplierName} onChange={(event) => setProduct({ ...product, supplierName: event.target.value })} />

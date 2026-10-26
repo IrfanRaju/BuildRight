@@ -388,3 +388,60 @@ export function calculateEstimate(input = {}, rateBook = illustrativeRateBook())
     ],
   };
 }
+
+/** Headline materials shown on the public rates ticker (grey-structure staples). */
+export const TICKER_MATERIAL_CODES = ['cement-grey', 'steel', 'bricks', 'sand-grey', 'crush'];
+
+/**
+ * Build city × material ticker rows from a loaded rate book.
+ * Uses the same resolveRate rules as estimates (city-local row wins; else Islamabad × regional multiplier).
+ */
+export function buildMaterialRatesTicker(book, { quality = 'standard', codes = TICKER_MATERIAL_CODES } = {}) {
+  const regionalCities = Object.keys(book?.regionalRates || {});
+  const factorCities = Object.keys(book?.locationFactors || {});
+  const cities = (regionalCities.length ? regionalCities : factorCities.length ? factorCities : ['Islamabad'])
+    .filter((city, index, list) => {
+      const key = String(city).toLowerCase().replace(/[^a-z0-9]/g, '');
+      if (key === 'gilgitbaltistan' && list.some((other) => /^gilgit$/i.test(other))) return false;
+      return list.findIndex((other) => String(other).toLowerCase().replace(/[^a-z0-9]/g, '') === key) === index;
+    })
+    .sort((a, b) => a.localeCompare(b));
+
+  const materials = book?.materials || [];
+  const items = [];
+
+  for (const city of cities) {
+    for (const code of codes) {
+      const meta = materials.find((row) => row.code === code);
+      if (!meta) continue;
+      const resolved = resolveRate(book, materials, (row) => row.code === code, quality, city, 'rate');
+      if (!resolved || !Number.isFinite(resolved.rate)) continue;
+
+      const sourceRow = materials.find((row) => row.code === code && row.location === city)
+        || materials.find((row) => row.code === code && row.location === 'Islamabad' && row.quality === 'standard')
+        || meta;
+      const lastUpdated = sourceRow.lastPriceUpdate || sourceRow.updatedAt || sourceRow.effectiveFrom || book.updatedAt;
+
+      items.push({
+        id: `${city}:${code}`,
+        city,
+        material: String(meta.name || code).replace(/\s*\([^)]*\)\s*/g, ' ').replace(/\s+/g, ' ').trim(),
+        code,
+        category: meta.category || '',
+        unit: meta.unit || '',
+        rate: money(resolved.rate),
+        lastUpdated: lastUpdated ? new Date(lastUpdated).toISOString() : null,
+        illustrative: meta.illustrative !== false,
+        provenance: resolved.provenance,
+      });
+    }
+  }
+
+  return {
+    items,
+    updatedAt: book?.updatedAt || null,
+    illustrative: book?.illustrative !== false,
+    source: book?.source || '',
+    quality,
+  };
+}

@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { api, money } from '../../lib/api';
 import { useCart } from '../../context/CartContext';
 import { QUANTITY_CALCULATORS } from '../../../shared/quantityEngine.js';
-import { Notice, PageHeader, buttonClass } from '../../components/ui';
+import { Notice, PageHeader, SearchableSelect, buttonClass } from '../../components/ui';
 
 export default function CalculatorPage() {
   const { add } = useCart();
@@ -55,11 +55,45 @@ export default function CalculatorPage() {
         ))}
         {calculator === 'paint' && (
           <>
-            <label className="text-sm font-semibold">Surface<select className="input mt-2" value={input.surface || 'interior'} onChange={(event) => setInput({ ...input, surface: event.target.value })}><option value="interior">Interior</option><option value="exterior">Exterior</option><option value="both">Both</option></select></label>
-            <label className="text-sm font-semibold">Condition<select className="input mt-2" value={input.condition} onChange={(event) => setInput({ ...input, condition: event.target.value })}><option value="minor">Minor</option><option value="moderate">Moderate</option><option value="major">Major</option></select></label>
+            <label className="text-sm font-semibold">Surface
+              <SearchableSelect
+                className="mt-2"
+                value={input.surface || 'interior'}
+                onChange={(next) => setInput({ ...input, surface: next })}
+                options={[
+                  { value: 'interior', label: 'Interior' },
+                  { value: 'exterior', label: 'Exterior' },
+                  { value: 'both', label: 'Both' },
+                ]}
+              />
+            </label>
+            <label className="text-sm font-semibold">Condition
+              <SearchableSelect
+                className="mt-2"
+                value={input.condition}
+                onChange={(next) => setInput({ ...input, condition: next })}
+                options={[
+                  { value: 'minor', label: 'Minor' },
+                  { value: 'moderate', label: 'Moderate' },
+                  { value: 'major', label: 'Major' },
+                ]}
+              />
+            </label>
           </>
         )}
-        <label className="text-sm font-semibold">Material quality<select className="input mt-2" value={input.quality} onChange={(event) => setInput({ ...input, quality: event.target.value })}><option value="economy">Economy</option><option value="standard">Standard</option><option value="premium">Premium</option><option value="luxury">Luxury</option></select></label>
+        <label className="text-sm font-semibold">Material quality
+          <SearchableSelect
+            className="mt-2"
+            value={input.quality}
+            onChange={(next) => setInput({ ...input, quality: next })}
+            options={[
+              { value: 'economy', label: 'Economy' },
+              { value: 'standard', label: 'Standard' },
+              { value: 'premium', label: 'Premium' },
+              { value: 'luxury', label: 'Luxury' },
+            ]}
+          />
+        </label>
         <div className="md:col-span-2"><button className={buttonClass} type="submit">Calculate estimate</button></div>
       </form>
       {result && (
@@ -77,9 +111,16 @@ export default function CalculatorPage() {
                     <td>{line.wastageQuantity} {line.unit}</td>
                     <td><input className="input w-24" type="number" min="0" step="0.01" value={line.quantity} onChange={(event) => editLine(line.key, { quantity: Number(event.target.value) })} /></td>
                     <td>{line.unmatched ? 'No catalog match' : (
-                      <select className="input" value={line.productId} onChange={(event) => { const option = line.options.find((item) => item._id === event.target.value); editLine(line.key, { productId: option._id, productName: option.name, brand: option.brand, unitPrice: option.pricePkr, unmatched: false }); }}>
-                        {line.options.map((option) => <option key={option._id} value={option._id}>{option.brand} · {money(option.pricePkr)}</option>)}
-                      </select>
+                      <SearchableSelect
+                        className="min-w-[12rem]"
+                        value={String(line.productId || '')}
+                        onChange={(next) => {
+                          const option = line.options.find((item) => String(item._id) === String(next));
+                          if (!option) return;
+                          editLine(line.key, { productId: option._id, productName: option.name, brand: option.brand, unitPrice: option.pricePkr, unmatched: false });
+                        }}
+                        options={line.options.map((option) => ({ value: String(option._id), label: `${option.brand} · ${money(option.pricePkr)}` }))}
+                      />
                     )}</td>
                     <td>{line.unmatched ? '—' : money(line.unitPrice)}<div className="text-[11px] text-slate-400">{line.priceUpdatedAt ? `Updated ${new Date(line.priceUpdatedAt).toLocaleDateString()}` : ''}</div></td>
                     <td>{money(line.lineTotal)}</td>
