@@ -17,7 +17,7 @@ import { assertOwner } from '../middleware/auth.js';
 import { DEFAULT_COMMERCE, SERVICE_REQUEST_NOTICE, distanceForCity, moneyRound } from '../../shared/commerce.js';
 import { DEFAULT_LABOR_RULES, LABOR_RATE_SOURCE, SERVICE_FIELDS } from '../../shared/repairCatalog.js';
 import { estimateRepairProject, retotalRepair } from '../../shared/repairEngine.js';
-import { ensureMarketplaceCatalog } from '../services/ensureCatalog.js';
+import { ensureMarketplaceCatalog, ensureRepairCatalog } from '../services/ensureCatalog.js';
 
 async function commerceSettings() {
   const stored = await SystemSetting.findOne({ key: 'commerce' }).lean();
@@ -55,6 +55,7 @@ export function createRepairRouter({ Router, requireUser, requireAdmin, optional
 
   router.get('/services', optionalUser, requireDatabase, async (req, res, next) => {
     try {
+      await ensureRepairCatalog();
       const { page, limit, skip } = pagination(req.query);
       const filter = req.user?.role === 'admin' && req.query.all === '1' ? {} : { active: true };
       const regex = containsRegex(req.query.q);
@@ -154,7 +155,7 @@ export function createRepairRouter({ Router, requireUser, requireAdmin, optional
 
   router.post('/estimate', requireDatabase, async (req, res, next) => {
     try {
-      await ensureMarketplaceCatalog();
+      await Promise.all([ensureMarketplaceCatalog(), ensureRepairCatalog()]);
       const [products, rules, settings, services] = await Promise.all([
         MarketplaceProduct.find({ active: true }).lean(),
         pricingMap(),
@@ -426,7 +427,7 @@ async function projectPayload(req, existing) {
   const tasks = Array.isArray(req.body?.tasks) ? req.body.tasks.slice(0, 12) : existing?.tasks || [];
   let estimate = existing?.estimate || null;
   if (req.body?.tasks || req.body?.materials) {
-    await ensureMarketplaceCatalog();
+    await Promise.all([ensureMarketplaceCatalog(), ensureRepairCatalog()]);
     const [products, rules, settings, services] = await Promise.all([
       MarketplaceProduct.find({ active: true }).lean(),
       pricingMap(),

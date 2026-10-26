@@ -1,5 +1,6 @@
-import { MarketplaceProduct, ProductCategory, User } from '../models/index.js';
+import { MarketplaceProduct, ProductCategory, RepairPricingRule, RepairService, User } from '../models/index.js';
 import { MARKET_CATEGORIES, MARKET_PRODUCTS } from '../data/marketplaceSeed.js';
+import { DEFAULT_LABOR_RULES, LABOR_RATE_SOURCE, REPAIR_SERVICES } from '../../shared/repairCatalog.js';
 import { hashPassword } from '../routes/auth.js';
 
 const globalForCatalog = globalThis;
@@ -80,4 +81,53 @@ export async function ensureMarketplaceCatalog() {
   }
 
   await globalForCatalog.__buildrightCatalogPromise;
+}
+
+/** Upsert seed repair services when the live DB has none (common after deploy without npm run seed). */
+export async function ensureRepairCatalog() {
+  if (globalForCatalog.__buildrightRepairReady) return;
+
+  const activeCount = await RepairService.countDocuments({ active: true });
+  if (activeCount > 0) {
+    globalForCatalog.__buildrightRepairReady = true;
+    return;
+  }
+
+  if (!globalForCatalog.__buildrightRepairPromise) {
+    globalForCatalog.__buildrightRepairPromise = (async () => {
+      for (const service of REPAIR_SERVICES) {
+        await RepairService.updateOne(
+          { slug: service.slug },
+          {
+            $setOnInsert: { ...service, seeded: true },
+            $set: { active: true },
+          },
+          { upsert: true },
+        );
+      }
+
+      for (const [serviceSlug, rule] of Object.entries(DEFAULT_LABOR_RULES)) {
+        await RepairPricingRule.updateOne(
+          { serviceSlug },
+          {
+            $setOnInsert: {
+              serviceSlug,
+              ...rule,
+              source: LABOR_RATE_SOURCE,
+              illustrative: true,
+            },
+          },
+          { upsert: true },
+        );
+      }
+
+      console.info(`BuildRight repair catalog ensured (${REPAIR_SERVICES.length} services).`);
+      globalForCatalog.__buildrightRepairReady = true;
+    })().catch((error) => {
+      globalForCatalog.__buildrightRepairPromise = null;
+      throw error;
+    });
+  }
+
+  await globalForCatalog.__buildrightRepairPromise;
 }
