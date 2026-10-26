@@ -704,10 +704,10 @@ function LandingPage({ setPage }) {
     { title: 'Smart Construction Tools', text: 'Open the available planning, design, and estimation workflows.', icon: Zap, page: 'dashboard' },
   ];
   const team = [
-    { name: 'Ayesha Khan', role: 'Architect · Islamabad', image: 'https://images.unsplash.com/photo-1672748341520-6a839e6c05bb?auto=format&fit=crop&w=700&q=80' },
-    { name: 'Ahmed Raza', role: 'Civil Engineer · Lahore', image: 'https://images.unsplash.com/photo-1622612023350-b15f063eabe6?auto=format&fit=crop&w=700&q=80' },
-    { name: 'Sana Ahmed', role: 'Project Manager · Karachi', image: 'https://images.unsplash.com/photo-1614213951697-a45781262acf?auto=format&fit=crop&w=700&q=80' },
-    { name: 'Bilal Hussain', role: 'Site Engineer · Gilgit', image: 'https://images.unsplash.com/photo-1577199001468-44c049e7603f?auto=format&fit=crop&w=700&q=80' },
+    { name: 'Ayesha Khan', role: 'Architect · Islamabad', image: 'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?auto=format&fit=crop&w=700&q=80' },
+    { name: 'Ahmed Raza', role: 'Civil Engineer · Lahore', image: 'https://images.unsplash.com/photo-1560250097-0b93528c311a?auto=format&fit=crop&w=700&q=80' },
+    { name: 'Sana Ahmed', role: 'Project Manager · Karachi', image: 'https://images.unsplash.com/photo-1580489944761-15a19d654956?auto=format&fit=crop&w=700&q=80' },
+    { name: 'Bilal Hussain', role: 'Site Engineer · Gilgit', image: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=700&q=80' },
   ];
   const articles = [
     { title: 'A practical guide to planning your first build', image: 'https://images.unsplash.com/photo-1487958449943-2429e8be8625?auto=format&fit=crop&w=900&q=80', category: 'Project Planning' },
